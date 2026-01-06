@@ -102,7 +102,10 @@ export default async (req, context) => {
         const content = await zipEntry.async("text");
 
         // Only add pages with meaningful body content
-        if (hasBodyContent(content)) {
+        const hasContent = hasBodyContent(content);
+        console.log(`[UPLOAD] HTML file: ${path}, hasContent: ${hasContent}, size: ${content.length}`);
+
+        if (hasContent) {
           await assetsStore.set(assetKey, content, { metadata: { contentType: "text/html" } });
           pages.push({
             name: fileName,
@@ -110,12 +113,13 @@ export default async (req, context) => {
             assetKey: assetKey,
           });
           assetKeys.push(assetKey);
+        } else {
+          console.log(`[UPLOAD] Skipping ${path} - no body content detected`);
         }
       } else if (path.match(/\.(css|js|jpg|jpeg|png|gif|svg|webp|ico|woff|woff2|ttf|eot)$/i)) {
-        const arrayBuffer = await zipEntry.async("arraybuffer");
-        
-        let contentType = "application/octet-stream";
         const ext = path.split(".").pop().toLowerCase();
+
+        let contentType = "application/octet-stream";
         const mimeTypes = {
           css: "text/css",
           js: "application/javascript",
@@ -133,7 +137,15 @@ export default async (req, context) => {
         };
         contentType = mimeTypes[ext] || contentType;
 
-        await assetsStore.set(assetKey, new Uint8Array(arrayBuffer), { metadata: { contentType } });
+        // Upload text files as text, binary files as binary
+        if (ext === 'css' || ext === 'js' || ext === 'svg') {
+          const content = await zipEntry.async("text");
+          await assetsStore.set(assetKey, content, { metadata: { contentType } });
+        } else {
+          const arrayBuffer = await zipEntry.async("arraybuffer");
+          await assetsStore.set(assetKey, new Uint8Array(arrayBuffer), { metadata: { contentType } });
+        }
+
         assetKeys.push(assetKey);
       }
     }

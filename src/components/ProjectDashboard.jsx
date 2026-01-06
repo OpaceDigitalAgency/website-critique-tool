@@ -22,6 +22,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
   const [viewMode, setViewMode] = useState('grid')
   const [searchQuery, setSearchQuery] = useState('')
   const [dragOver, setDragOver] = useState(false)
+  const [hasCustomName, setHasCustomName] = useState(false)
   const fileInputRef = useRef(null)
   const [formData, setFormData] = useState({
     name: '',
@@ -39,12 +40,26 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     }
   }
 
+  const getZipDisplayName = (fileName) => {
+    if (!fileName) return ''
+    return fileName.replace(/\.zip$/i, '')
+  }
+
+  const applyZipProjectName = (fileName) => {
+    if (hasCustomName) return
+    const nextName = getZipDisplayName(fileName)
+    if (nextName) {
+      setFormData((prev) => ({ ...prev, name: nextName }))
+    }
+  }
+
   const handleFileSelect = (e, type) => {
     const files = Array.from(e.target.files)
     if (type === 'zip' && files[0]?.name.endsWith('.zip')) {
       setZipFile(files[0])
       setUploadType('zip')
       setShowUploadModal(true)
+      applyZipProjectName(files[0].name)
     } else if (type === 'images') {
       setImageFiles(files.filter(f => f.type.startsWith('image/')))
       setUploadType('images')
@@ -63,6 +78,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
       setZipFile(zipFile)
       setUploadType('zip')
       setShowUploadModal(true)
+      applyZipProjectName(zipFile.name)
       return
     }
 
@@ -136,6 +152,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     setZipFile(null)
     setImageFiles([])
     setUploadType(null)
+    setHasCustomName(false)
   }
 
   const copyShareUrl = async (projectId, e) => {
@@ -358,12 +375,6 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                 <div className={viewMode === 'grid' ? 'p-4' : 'flex-1 min-w-0'}>
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <h3 className="font-medium text-neutral-800 truncate">{project.name}</h3>
-                    <button
-                      onClick={(e) => handleDeleteProject(project.id, e)}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-neutral-100 rounded transition-all"
-                    >
-                      <Trash2 className="w-4 h-4 text-neutral-400 hover:text-red-500" />
-                    </button>
                   </div>
 
                   {project.clientName && (
@@ -381,6 +392,39 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                   </div>
                 </div>
 
+                {viewMode === 'list' && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => copyShareUrl(project.id, e)}
+                      className="py-2 px-3 bg-neutral-100 text-neutral-700 text-sm rounded-lg
+                               hover:bg-neutral-200 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      {copiedId === project.id ? (
+                        <><Check className="w-3.5 h-3.5 text-green-600" /> Copied</>
+                      ) : (
+                        <><Link className="w-3.5 h-3.5" /> Share</>
+                      )}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onProjectSelect(project)
+                      }}
+                      className="py-2 px-3 bg-primary-600 text-white text-sm rounded-lg
+                               hover:bg-primary-700 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5" /> Open
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteProject(project.id, e)}
+                      className="py-2 px-3 bg-red-50 text-red-700 text-sm rounded-lg
+                               hover:bg-red-100 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
+                  </div>
+                )}
+
                 {/* Actions overlay for grid */}
                 {viewMode === 'grid' && (
                   <div className="px-4 pb-4 pt-0 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -395,7 +439,12 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                         <><Link className="w-3.5 h-3.5" /> Share</>
                       )}
                     </button>
-                    <button className="flex-1 py-2 bg-primary-600 text-white text-sm rounded-lg
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onProjectSelect(project)
+                      }}
+                      className="flex-1 py-2 bg-primary-600 text-white text-sm rounded-lg
                                      hover:bg-primary-700 transition-colors flex items-center justify-center gap-1.5">
                       <Eye className="w-3.5 h-3.5" /> Open
                     </button>
@@ -454,7 +503,10 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) => {
+                    setHasCustomName(true)
+                    setFormData({ ...formData, name: e.target.value })
+                  }}
                   className="input-field"
                   placeholder="e.g. Homepage Redesign v2"
                   disabled={uploading}
