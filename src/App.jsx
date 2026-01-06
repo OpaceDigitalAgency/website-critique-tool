@@ -44,10 +44,10 @@ function App() {
   const loadProjectForReview = async (projectId) => {
     setLoading(true)
     setError(null)
+    setCurrentView('viewer') // Show viewer immediately with loading state
     try {
       const project = await api.getProject(projectId)
       setSelectedProject(project)
-      setCurrentView('viewer')
     } catch (err) {
       console.error('Failed to load project:', err)
       setError('Project not found or has been deleted.')
@@ -160,11 +160,18 @@ function App() {
           onProjectDelete={handleProjectDelete}
           loading={loading}
         />
-      ) : (
+      ) : selectedProject ? (
         <ProjectViewer
           project={selectedProject}
           onBack={handleBackToDashboard}
         />
+      ) : (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading project...</p>
+          </div>
+        </div>
       )}
     </div>
   )

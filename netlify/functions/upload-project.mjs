@@ -93,10 +93,15 @@ export default async (req, context) => {
       if (zipEntry.dir) continue;
 
       // Skip macOS metadata files
-      if (shouldSkipFile(path)) continue;
+      if (shouldSkipFile(path)) {
+        console.log(`[UPLOAD] Skipping file (metadata): ${path}`);
+        continue;
+      }
 
       const fileName = path.split("/").pop();
       const assetKey = `${projectId}/${path}`;
+
+      console.log(`[UPLOAD] Processing file: ${path}`);
 
       if (path.toLowerCase().endsWith(".html")) {
         const content = await zipEntry.async("text");
@@ -118,6 +123,7 @@ export default async (req, context) => {
         }
       } else if (path.match(/\.(css|js|jpg|jpeg|png|gif|svg|webp|ico|woff|woff2|ttf|eot)$/i)) {
         const ext = path.split(".").pop().toLowerCase();
+        console.log(`[UPLOAD] Asset file detected: ${path}, ext: ${ext}`);
 
         let contentType = "application/octet-stream";
         const mimeTypes = {
@@ -140,13 +146,18 @@ export default async (req, context) => {
         // Upload text files as text, binary files as binary
         if (ext === 'css' || ext === 'js' || ext === 'svg') {
           const content = await zipEntry.async("text");
+          console.log(`[UPLOAD] Uploading text asset: ${assetKey}, size: ${content.length}, contentType: ${contentType}`);
           await assetsStore.set(assetKey, content, { metadata: { contentType } });
         } else {
           const arrayBuffer = await zipEntry.async("arraybuffer");
+          console.log(`[UPLOAD] Uploading binary asset: ${assetKey}, size: ${arrayBuffer.byteLength}, contentType: ${contentType}`);
           await assetsStore.set(assetKey, new Uint8Array(arrayBuffer), { metadata: { contentType } });
         }
 
         assetKeys.push(assetKey);
+        console.log(`[UPLOAD] Asset uploaded successfully: ${assetKey}`);
+      } else {
+        console.log(`[UPLOAD] Skipping file (unknown type): ${path}`);
       }
     }
 
