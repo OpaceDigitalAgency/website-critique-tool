@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.0.2'
+const COMPONENT_VERSION = '2.0.3'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -208,15 +208,16 @@ export default function ProjectViewer({ project, onBack }) {
     pdf.save(`${project.name}-feedback.pdf`)
   }
 
+  // Returns { type: 'url' | 'srcdoc', content: string }
   const getIframeContent = () => {
     if (project.type === 'url') {
-      return currentPageData.path
+      return { type: 'url', content: currentPageData.path }
     } else {
-      let htmlContent = currentPageData.content
+      let htmlContent = currentPageData.content || ''
 
       // Check if we have cloud-stored assets (assetKeys) or local assets
       if (project.assetKeys && project.assetKeys.length > 0) {
-        // Cloud-based project - replace asset references with API URLs
+        // Cloud-based project - replace asset references with absolute API URLs
         const pagePath = currentPageData.relativePath || currentPageData.path || ''
         const baseDir = pagePath.split('/').slice(0, -1).join('/')
 
@@ -225,20 +226,27 @@ export default function ProjectViewer({ project, onBack }) {
         for (const assetKey of project.assetKeys) {
           const assetPath = assetKey.replace(`${project.id}/`, '')
           const fileName = assetPath.split('/').pop()
-          const assetUrl = api.getAssetUrl(project.id, assetPath)
+          // Use absolute URL with full origin
+          const assetUrl = `${window.location.origin}${api.getAssetUrl(project.id, assetPath)}`
 
-          // Store both full path and filename
+          // Store multiple path variations for matching
           assetMap.set(assetPath, assetUrl)
           assetMap.set(fileName, assetUrl)
+          // Also store with baseDir prefix for relative paths
+          if (baseDir) {
+            assetMap.set(`${baseDir}/${fileName}`, assetUrl)
+          }
         }
 
-        // Replace all src and href attributes
+        // Replace all src and href attributes with absolute URLs
         htmlContent = htmlContent.replace(
           /(src|href)=["']([^"']+)["']/gi,
           (match, attr, path) => {
-            // Skip absolute URLs and data URIs
+            // Skip absolute URLs, data URIs, mailto, tel, and anchors
             if (path.startsWith('http://') || path.startsWith('https://') ||
-                path.startsWith('data:') || path.startsWith('//')) {
+                path.startsWith('data:') || path.startsWith('//') ||
+                path.startsWith('mailto:') || path.startsWith('tel:') ||
+                path.startsWith('#')) {
               return match
             }
 
@@ -262,8 +270,33 @@ export default function ProjectViewer({ project, onBack }) {
               if (assetMap.has(resolvedPath)) {
                 return `${attr}="${assetMap.get(resolvedPath)}"`
               }
+              // Also try just the filename from the resolved path
+              const resolvedFileName = resolvedPath.split('/').pop()
+              if (assetMap.has(resolvedFileName)) {
+                return `${attr}="${assetMap.get(resolvedFileName)}"`
+              }
             }
 
+            return match
+          }
+        )
+
+        // Also replace url() in inline styles
+        htmlContent = htmlContent.replace(
+          /url\(["']?([^"')]+)["']?\)/gi,
+          (match, path) => {
+            if (path.startsWith('http://') || path.startsWith('https://') ||
+                path.startsWith('data:') || path.startsWith('//')) {
+              return match
+            }
+            const cleanPath = path.replace(/^\.\//, '').replace(/^\//, '')
+            const fileName = cleanPath.split('/').pop()
+            if (assetMap.has(fileName)) {
+              return `url("${assetMap.get(fileName)}")`
+            }
+            if (assetMap.has(cleanPath)) {
+              return `url("${assetMap.get(cleanPath)}")`
+            }
             return match
           }
         )
@@ -274,50 +307,16 @@ export default function ProjectViewer({ project, onBack }) {
 
         for (const [assetPath, assetData] of Object.entries(project.assets)) {
           const fileName = assetPath.split('/').pop()
-
-          let relativePath = assetPath
-          if (baseDir) {
-            const pathParts = assetPath.split('/')
-            const baseParts = baseDir.split('/')
-
-            let commonLength = 0
-            for (let i = 0; i < Math.min(pathParts.length, baseParts.length); i++) {
-              if (pathParts[i] === baseParts[i]) {
-                commonLength++
-              } else {
-                break
-              }
-            }
-
-            const upLevels = baseParts.length - commonLength
-            const downPath = pathParts.slice(commonLength).join('/')
-            relativePath = '../'.repeat(upLevels) + downPath
-          }
+          const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
           htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']${fileName}["']`, 'g'),
-            `$1="${assetData}"`
-          )
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']${relativePath}["']`, 'g'),
-            `$1="${assetData}"`
-          )
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']${assetPath}["']`, 'g'),
-            `$1="${assetData}"`
-          )
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']\\./${fileName}["']`, 'g'),
-            `$1="${assetData}"`
-          )
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']\\.\\./${fileName}["']`, 'g'),
+            new RegExp(`(src|href)=["']([^"']*${escapedFileName})["']`, 'gi'),
             `$1="${assetData}"`
           )
         }
       }
 
-      return `data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`
+      return { type: 'srcdoc', content: htmlContent }
     }
   }
 
@@ -446,13 +445,30 @@ export default function ProjectViewer({ project, onBack }) {
             }}
           >
             <div className="relative" style={{ height: '800px' }}>
-              <iframe
-                ref={iframeRef}
-                src={getIframeContent()}
-                className="w-full h-full border-0"
-                title={currentPageData.name}
-                sandbox="allow-same-origin allow-scripts"
-              />
+              {(() => {
+                const iframeData = getIframeContent()
+                if (iframeData.type === 'url') {
+                  return (
+                    <iframe
+                      ref={iframeRef}
+                      src={iframeData.content}
+                      className="w-full h-full border-0"
+                      title={currentPageData.name}
+                      sandbox="allow-same-origin allow-scripts"
+                    />
+                  )
+                } else {
+                  return (
+                    <iframe
+                      ref={iframeRef}
+                      srcDoc={iframeData.content}
+                      className="w-full h-full border-0"
+                      title={currentPageData.name}
+                      sandbox="allow-same-origin allow-scripts"
+                    />
+                  )
+                }
+              })()}
 
               <div
                 ref={overlayRef}

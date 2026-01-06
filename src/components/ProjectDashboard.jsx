@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import {
   Upload, Globe, Plus, Trash2, Eye, Check, Link, Image, FileCode,
   FolderArchive, MoreHorizontal, Clock, Users, Search, Grid3X3, List,
-  Sparkles, X, ChevronRight
+  X, ChevronRight
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -161,9 +161,11 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+              <img
+                src="/annotate-by-opace-small.png"
+                alt="Annotate by Opace logo"
+                className="w-10 h-10 rounded-xl object-contain"
+              />
               <div>
                 <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
                 <p className="text-xs text-neutral-500">The Visual Feedback &amp; Website Critique Tool</p>

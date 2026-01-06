@@ -5,7 +5,7 @@ import api from './services/api'
 import './App.css'
 
 // App version for cache busting
-const APP_VERSION = '2.0.2'
+const APP_VERSION = '2.0.3'
 
 function App() {
   const [currentView, setCurrentView] = useState('dashboard')
@@ -88,8 +88,14 @@ function App() {
 
   const handleProjectCreate = async (newProject) => {
     // Project is already created via API in dashboard
-    // Just refresh the list
-    await loadProjects()
+    // Automatically navigate to the new project
+    if (newProject && newProject.id) {
+      setSelectedProject(newProject)
+      setCurrentView('viewer')
+      window.history.pushState({}, '', `/review/${newProject.id}`)
+    }
+    // Also refresh the list in background
+    loadProjects()
   }
 
   const handleProjectDelete = async (projectId) => {

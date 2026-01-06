@@ -1,6 +1,18 @@
 import { getStore } from "@netlify/blobs";
 import JSZip from "jszip";
 
+// Helper to check if a file should be skipped (macOS metadata, etc.)
+function shouldSkipFile(path) {
+  const fileName = path.split("/").pop();
+  // Skip macOS resource forks (._filename), __MACOSX folder, .DS_Store, source maps
+  return (
+    fileName.startsWith("._") ||
+    path.includes("__MACOSX/") ||
+    fileName === ".DS_Store" ||
+    fileName.endsWith(".map")
+  );
+}
+
 export default async (req, context) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -53,6 +65,9 @@ export default async (req, context) => {
     // Process all files in ZIP
     for (const [path, zipEntry] of Object.entries(zipContent.files)) {
       if (zipEntry.dir) continue;
+
+      // Skip macOS metadata files
+      if (shouldSkipFile(path)) continue;
 
       const fileName = path.split("/").pop();
       const assetKey = `${projectId}/${path}`;

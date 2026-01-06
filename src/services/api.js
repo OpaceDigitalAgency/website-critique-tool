@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.0.2';
+const API_VERSION = '2.0.3';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -28,13 +28,15 @@ const MIME_TYPES = {
   eot: 'application/vnd.ms-fontobject',
 };
 
-// Files to skip during upload (source maps, etc.)
+// Files to skip during upload (source maps, macOS metadata, etc.)
 const SKIP_PATTERNS = [
   /\.map$/i,
   /\.DS_Store$/i,
   /thumbs\.db$/i,
   /__MACOSX\//i,
   /node_modules\//i,
+  /\/\._[^/]+$/i,  // macOS resource forks (._filename)
+  /^\._[^/]+$/i,   // macOS resource forks at root level
 ];
 
 /**
