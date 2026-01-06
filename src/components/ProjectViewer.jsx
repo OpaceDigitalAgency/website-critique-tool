@@ -109,6 +109,8 @@ export default function ProjectViewer({ project, onBack }) {
     setTempPinPosition({ x, y })
     setShowCommentInput(true)
     setCommentText('')
+    // Temporarily disable comment mode to allow interaction with the dialog
+    setCommentMode(false)
   }
 
   const handleAddComment = () => {
@@ -552,6 +554,8 @@ export default function ProjectViewer({ project, onBack }) {
                   setShowCommentInput(false)
                   setTempPinPosition(null)
                   setCommentText('')
+                  // Re-enable comment mode when canceling
+                  setCommentMode(true)
                 }}
                 className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
               >

@@ -20,23 +20,13 @@ function shouldSkipFile(path) {
 function hasBodyContent(html) {
   if (!html || typeof html !== 'string') return false;
 
-  // Extract body content
+  // Just check if there's a body tag with some content
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   if (!bodyMatch) return false;
 
-  let bodyContent = bodyMatch[1];
-
-  // Remove script tags
-  bodyContent = bodyContent.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-  // Remove empty divs like <div id="app"></div>
-  bodyContent = bodyContent.replace(/<div[^>]*>\s*<\/div>/gi, '');
-  // Remove comments
-  bodyContent = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
-  // Remove whitespace
-  bodyContent = bodyContent.replace(/\s+/g, '').trim();
-
-  // Check if there's any meaningful content left
-  return bodyContent.length > 10;
+  // Remove whitespace and check if there's anything left
+  const bodyContent = bodyMatch[1].trim();
+  return bodyContent.length > 0;
 }
 
 export default async (req, context) => {
