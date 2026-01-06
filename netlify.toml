@@ -3,6 +3,23 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["node_modules/jszip/**"]
+
+# API routes - serve functions before static files
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Review pages - serve index.html for client-side routing
+[[redirects]]
+  from = "/review/*"
+  to = "/index.html"
+  status = 200
+
+# SPA fallback - all other routes to index.html
 [[redirects]]
   from = "/*"
   to = "/index.html"

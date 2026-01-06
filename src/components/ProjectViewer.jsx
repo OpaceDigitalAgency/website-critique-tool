@@ -1,7 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Save } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Save, Copy, Check, Link } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
+import api from '../services/api'
+
+// Component version for cache busting
+const COMPONENT_VERSION = '2.0.0'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -19,19 +23,79 @@ export default function ProjectViewer({ project, onBack }) {
   const [showCommentInput, setShowCommentInput] = useState(false)
   const [commentText, setCommentText] = useState('')
   const [tempPinPosition, setTempPinPosition] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState(false)
   const overlayRef = useRef(null)
   const iframeRef = useRef(null)
+  const saveTimeoutRef = useRef(null)
 
+  // Load comments from cloud API
   useEffect(() => {
-    const savedComments = localStorage.getItem(`comments-${project.id}`)
-    if (savedComments) {
-      setComments(JSON.parse(savedComments))
+    const loadComments = async () => {
+      try {
+        const cloudComments = await api.getComments(project.id)
+        if (cloudComments && cloudComments.length > 0) {
+          // Convert array to object keyed by page
+          const commentsObj = {}
+          cloudComments.forEach(comment => {
+            const pageKey = comment.pageKey || 'default'
+            if (!commentsObj[pageKey]) {
+              commentsObj[pageKey] = []
+            }
+            commentsObj[pageKey].push(comment)
+          })
+          setComments(commentsObj)
+        }
+      } catch (err) {
+        console.error('Failed to load comments:', err)
+        // Fall back to localStorage
+        const savedComments = localStorage.getItem(`comments-${project.id}`)
+        if (savedComments) {
+          setComments(JSON.parse(savedComments))
+        }
+      }
+    }
+    loadComments()
+  }, [project.id])
+
+  // Auto-save comments to cloud with debounce
+  const saveCommentsToCloud = useCallback(async (commentsToSave) => {
+    setSaving(true)
+    try {
+      // Flatten comments object to array with pageKey
+      const commentsArray = []
+      for (const [pageKey, pageComments] of Object.entries(commentsToSave)) {
+        pageComments.forEach(comment => {
+          commentsArray.push({ ...comment, pageKey })
+        })
+      }
+      await api.saveComments(project.id, commentsArray)
+      // Also save to localStorage as backup
+      localStorage.setItem(`comments-${project.id}`, JSON.stringify(commentsToSave))
+    } catch (err) {
+      console.error('Failed to save comments:', err)
+    } finally {
+      setSaving(false)
     }
   }, [project.id])
 
   useEffect(() => {
-    localStorage.setItem(`comments-${project.id}`, JSON.stringify(comments))
-  }, [comments, project.id])
+    // Debounce save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      if (Object.keys(comments).length > 0) {
+        saveCommentsToCloud(comments)
+      }
+    }, 1000)
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [comments, saveCommentsToCloud])
 
   const currentPageData = project.pages[currentPage]
 
@@ -150,12 +214,49 @@ export default function ProjectViewer({ project, onBack }) {
     } else {
       let htmlContent = currentPageData.content
 
-      if (project.assets) {
+      // Check if we have cloud-stored assets (assetKeys) or local assets
+      if (project.assetKeys && project.assetKeys.length > 0) {
+        // Cloud-based project - replace asset references with API URLs
+        const baseDir = currentPageData.relativePath.split('/').slice(0, -1).join('/')
+
+        for (const assetKey of project.assetKeys) {
+          // assetKey format: projectId/path/to/file.ext
+          const assetPath = assetKey.replace(`${project.id}/`, '')
+          const fileName = assetPath.split('/').pop()
+          const assetUrl = api.getAssetUrl(project.id, assetPath)
+
+          // Escape special regex characters in paths
+          const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+          // Replace various path formats
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']${escapeRegex(fileName)}["']`, 'g'),
+            `$1="${assetUrl}"`
+          )
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']${escapeRegex(assetPath)}["']`, 'g'),
+            `$1="${assetUrl}"`
+          )
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']\\./${escapeRegex(fileName)}["']`, 'g'),
+            `$1="${assetUrl}"`
+          )
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']\\.\\./${escapeRegex(fileName)}["']`, 'g'),
+            `$1="${assetUrl}"`
+          )
+          // Handle relative paths with directories
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["'][^"']*${escapeRegex(fileName)}["']`, 'g'),
+            `$1="${assetUrl}"`
+          )
+        }
+      } else if (project.assets) {
+        // Legacy local assets (base64 encoded)
         const baseDir = currentPageData.relativePath.split('/').slice(0, -1).join('/')
 
         for (const [assetPath, assetData] of Object.entries(project.assets)) {
           const fileName = assetPath.split('/').pop()
-          const assetDir = assetPath.split('/').slice(0, -1).join('/')
 
           let relativePath = assetPath
           if (baseDir) {
@@ -203,6 +304,13 @@ export default function ProjectViewer({ project, onBack }) {
     }
   }
 
+  const copyShareUrl = async () => {
+    const shareUrl = api.getShareUrl(project.id)
+    await navigator.clipboard.writeText(shareUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   const viewportWidth = VIEWPORTS[viewport].width
 
   return (
@@ -227,6 +335,31 @@ export default function ProjectViewer({ project, onBack }) {
             </div>
 
             <div className="flex items-center gap-3">
+              {saving && (
+                <span className="text-sm text-gray-500 flex items-center gap-1">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-500"></div>
+                  Saving...
+                </span>
+              )}
+
+              <button
+                onClick={copyShareUrl}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                title="Copy share link"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4 text-green-600" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Link className="w-4 h-4" />
+                    Share
+                  </>
+                )}
+              </button>
+
               <button
                 onClick={() => setCommentMode(!commentMode)}
                 className={`flex items-center gap-2 px-4 py-2 rounded transition-colors ${
