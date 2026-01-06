@@ -208,6 +208,30 @@ export default function ProjectViewer({ project, onBack }) {
     pdf.save(`${project.name}-feedback.pdf`)
   }
 
+  const resolveAssetUrl = (assetMap, baseDir, rawPath) => {
+    if (!rawPath) return null
+    const [pathOnly, suffix = ''] = rawPath.split(/([?#].*)/)
+    const cleanPath = pathOnly.replace(/^\.\//, '').replace(/^\//, '')
+
+    if (baseDir) {
+      const withBaseDir = `${baseDir}/${cleanPath}`.replace(/\/+/g, '/')
+      if (assetMap.has(withBaseDir)) {
+        return `${assetMap.get(withBaseDir)}${suffix}`
+      }
+    }
+
+    if (assetMap.has(cleanPath)) {
+      return `${assetMap.get(cleanPath)}${suffix}`
+    }
+
+    const fileName = cleanPath.split('/').pop()
+    if (fileName && assetMap.has(fileName)) {
+      return `${assetMap.get(fileName)}${suffix}`
+    }
+
+    return null
+  }
+
   // Returns { type: 'url' | 'srcdoc', content: string }
   const getIframeContent = () => {
     if (project.type === 'url') {
@@ -250,34 +274,8 @@ export default function ProjectViewer({ project, onBack }) {
               return match
             }
 
-            // Clean up the path
-            let cleanPath = path.replace(/^\.\//, '').replace(/^\//, '')
-
-            // Try to find matching asset
-            if (assetMap.has(cleanPath)) {
-              return `${attr}="${assetMap.get(cleanPath)}"`
-            }
-
-            // Try just the filename
-            const fileName = cleanPath.split('/').pop()
-            if (assetMap.has(fileName)) {
-              return `${attr}="${assetMap.get(fileName)}"`
-            }
-
-            // If in a subdirectory, try relative to base
-            if (baseDir && cleanPath.startsWith('../')) {
-              const resolvedPath = cleanPath.replace(/^(\.\.\/)+/, '')
-              if (assetMap.has(resolvedPath)) {
-                return `${attr}="${assetMap.get(resolvedPath)}"`
-              }
-              // Also try just the filename from the resolved path
-              const resolvedFileName = resolvedPath.split('/').pop()
-              if (assetMap.has(resolvedFileName)) {
-                return `${attr}="${assetMap.get(resolvedFileName)}"`
-              }
-            }
-
-            return match
+            const resolved = resolveAssetUrl(assetMap, baseDir, path)
+            return resolved ? `${attr}="${resolved}"` : match
           }
         )
 
@@ -289,15 +287,8 @@ export default function ProjectViewer({ project, onBack }) {
                 path.startsWith('data:') || path.startsWith('//')) {
               return match
             }
-            const cleanPath = path.replace(/^\.\//, '').replace(/^\//, '')
-            const fileName = cleanPath.split('/').pop()
-            if (assetMap.has(fileName)) {
-              return `url("${assetMap.get(fileName)}")`
-            }
-            if (assetMap.has(cleanPath)) {
-              return `url("${assetMap.get(cleanPath)}")`
-            }
-            return match
+            const resolved = resolveAssetUrl(assetMap, baseDir, path)
+            return resolved ? `url("${resolved}")` : match
           }
         )
       } else if (project.assets) {
@@ -580,4 +571,3 @@ export default function ProjectViewer({ project, onBack }) {
     </div>
   )
 }
-
