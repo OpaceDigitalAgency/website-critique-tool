@@ -7,7 +7,7 @@ import {
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '3.0.0'
+const COMPONENT_VERSION = '3.0.1'
 
 export default function ProjectDashboard({ projects, onProjectSelect, onProjectCreate, onProjectDelete, loading }) {
   const [showUploadModal, setShowUploadModal] = useState(false)

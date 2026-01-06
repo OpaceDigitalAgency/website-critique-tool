@@ -1,10 +1,16 @@
 import { getStore } from "@netlify/blobs";
 
+// API version for cache busting
+const API_VERSION = "2.0.1";
+
 export default async (req, context) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
   };
 
   if (req.method === "OPTIONS") {
@@ -13,7 +19,7 @@ export default async (req, context) => {
 
   try {
     const projectsStore = getStore("projects");
-    
+
     let projectsList = [];
     try {
       const list = await projectsStore.get("_list", { type: "json" });
@@ -22,7 +28,11 @@ export default async (req, context) => {
       // List doesn't exist yet
     }
 
-    return new Response(JSON.stringify({ projects: projectsList }), {
+    return new Response(JSON.stringify({
+      projects: projectsList,
+      apiVersion: API_VERSION,
+      timestamp: new Date().toISOString()
+    }), {
       status: 200,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });

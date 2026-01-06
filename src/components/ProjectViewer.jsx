@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.0.0'
+const COMPONENT_VERSION = '2.0.1'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -217,7 +217,8 @@ export default function ProjectViewer({ project, onBack }) {
       // Check if we have cloud-stored assets (assetKeys) or local assets
       if (project.assetKeys && project.assetKeys.length > 0) {
         // Cloud-based project - replace asset references with API URLs
-        const baseDir = currentPageData.relativePath.split('/').slice(0, -1).join('/')
+        const pagePath = currentPageData.relativePath || currentPageData.path || ''
+        const baseDir = pagePath.split('/').slice(0, -1).join('/')
 
         for (const assetKey of project.assetKeys) {
           // assetKey format: projectId/path/to/file.ext
@@ -253,7 +254,8 @@ export default function ProjectViewer({ project, onBack }) {
         }
       } else if (project.assets) {
         // Legacy local assets (base64 encoded)
-        const baseDir = currentPageData.relativePath.split('/').slice(0, -1).join('/')
+        const pagePath = currentPageData.relativePath || currentPageData.path || ''
+        const baseDir = pagePath.split('/').slice(0, -1).join('/')
 
         for (const [assetPath, assetData] of Object.entries(project.assets)) {
           const fileName = assetPath.split('/').pop()

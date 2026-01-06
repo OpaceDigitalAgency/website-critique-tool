@@ -1,10 +1,14 @@
 import { getStore } from "@netlify/blobs";
 
+// API version for cache busting
+const API_VERSION = "2.0.1";
+
 export default async (req, context) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
   };
 
   if (req.method === "OPTIONS") {
@@ -23,6 +27,8 @@ export default async (req, context) => {
     }
 
     const projectsStore = getStore("projects");
+    const assetsStore = getStore("assets");
+
     const projectData = await projectsStore.get(projectId, { type: "json" });
 
     if (!projectData) {
@@ -32,7 +38,38 @@ export default async (req, context) => {
       });
     }
 
-    return new Response(JSON.stringify(projectData), {
+    // Fetch HTML content for each page from assets store
+    if (projectData.pages && projectData.pages.length > 0) {
+      const pagesWithContent = await Promise.all(
+        projectData.pages.map(async (page) => {
+          try {
+            if (page.assetKey) {
+              const content = await assetsStore.get(page.assetKey, { type: "text" });
+              return {
+                ...page,
+                relativePath: page.path, // Add relativePath for compatibility
+                content: content || "",
+              };
+            }
+            return {
+              ...page,
+              relativePath: page.path,
+              content: page.content || "",
+            };
+          } catch (err) {
+            console.error(`Failed to fetch content for ${page.assetKey}:`, err);
+            return {
+              ...page,
+              relativePath: page.path,
+              content: "",
+            };
+          }
+        })
+      );
+      projectData.pages = pagesWithContent;
+    }
+
+    return new Response(JSON.stringify({ ...projectData, apiVersion: API_VERSION }), {
       status: 200,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
