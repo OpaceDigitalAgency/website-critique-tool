@@ -9,26 +9,99 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     clientName: '',
     description: '',
     url: '',
-    files: []
+    files: [],
+    assets: {}
   })
 
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files)
     const htmlFiles = []
-    
+    const allFiles = {}
+
     for (const file of files) {
+      const relativePath = file.webkitRelativePath || file.name
+
       if (file.name.endsWith('.html')) {
         const content = await file.text()
         htmlFiles.push({
           name: file.name,
-          path: file.webkitRelativePath || file.name,
+          path: relativePath,
           content: content,
-          relativePath: file.webkitRelativePath || file.name
+          relativePath: relativePath
         })
       }
+
+      if (file.name.endsWith('.css') || file.name.endsWith('.js') ||
+          file.name.match(/\.(jpg|jpeg|png|gif|svg|webp|ico)$/i)) {
+        const reader = new FileReader()
+        const fileData = await new Promise((resolve) => {
+          reader.onload = (e) => resolve(e.target.result)
+          reader.readAsDataURL(file)
+        })
+        allFiles[relativePath] = fileData
+      }
     }
-    
-    setFormData({ ...formData, files: htmlFiles })
+
+    setFormData({ ...formData, files: htmlFiles, assets: allFiles })
+  }
+
+  const handleZipUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const JSZip = (await import('jszip')).default
+    const zip = new JSZip()
+    const zipContent = await zip.loadAsync(file)
+
+    const htmlFiles = []
+    const allFiles = {}
+
+    for (const [path, zipEntry] of Object.entries(zipContent.files)) {
+      if (zipEntry.dir) continue
+
+      if (path.endsWith('.html')) {
+        const content = await zipEntry.async('text')
+        htmlFiles.push({
+          name: path.split('/').pop(),
+          path: path,
+          content: content,
+          relativePath: path
+        })
+      } else if (path.endsWith('.css') || path.endsWith('.js') ||
+                 path.match(/\.(jpg|jpeg|png|gif|svg|webp|ico)$/i)) {
+        const blob = await zipEntry.async('blob')
+        const reader = new FileReader()
+        const fileData = await new Promise((resolve) => {
+          reader.onload = (e) => resolve(e.target.result)
+          reader.readAsDataURL(blob)
+        })
+        allFiles[path] = fileData
+      }
+    }
+
+    setFormData({ ...formData, files: htmlFiles, assets: allFiles })
+  }
+
+  const handleDrop = async (e) => {
+    e.preventDefault()
+    const items = Array.from(e.dataTransfer.items)
+
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile()
+        if (file.name.endsWith('.zip')) {
+          const fakeEvent = { target: { files: [file] } }
+          await handleZipUpload(fakeEvent)
+          setUploadType('folder')
+          setShowUploadModal(true)
+          return
+        }
+      }
+    }
+  }
+
+  const handleDragOver = (e) => {
+    e.preventDefault()
   }
 
   const handleCreateProject = () => {
@@ -40,15 +113,16 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
       createdAt: new Date().toISOString(),
       lastModified: new Date().toISOString(),
       type: uploadType,
-      pages: uploadType === 'url' 
+      pages: uploadType === 'url'
         ? [{ name: 'Home', path: formData.url, relativePath: formData.url }]
         : formData.files,
-      baseUrl: uploadType === 'url' ? formData.url : null
+      baseUrl: uploadType === 'url' ? formData.url : null,
+      assets: formData.assets || {}
     }
-    
+
     onProjectCreate(newProject)
     setShowUploadModal(false)
-    setFormData({ name: '', clientName: '', description: '', url: '', files: [] })
+    setFormData({ name: '', clientName: '', description: '', url: '', files: [], assets: {} })
     setUploadType(null)
   }
 
@@ -66,6 +140,25 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">Opace Annotate</h1>
           <p className="text-gray-600">Visual Feedback & Website Critique Tool</p>
+        </div>
+
+        <div
+          className="mb-8 p-8 border-4 border-dashed border-blue-300 rounded-lg bg-blue-50 text-center hover:border-blue-500 hover:bg-blue-100 transition-all cursor-pointer"
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onClick={() => document.getElementById('zip-upload-input').click()}
+        >
+          <Upload className="w-16 h-16 text-blue-600 mx-auto mb-4" />
+          <h3 className="text-xl font-bold mb-2">Drag & Drop ZIP File Here</h3>
+          <p className="text-gray-600 mb-2">or click to browse</p>
+          <p className="text-sm text-gray-500">Upload a ZIP file containing your HTML, CSS, images, and other assets</p>
+          <input
+            id="zip-upload-input"
+            type="file"
+            accept=".zip"
+            onChange={handleZipUpload}
+            className="hidden"
+          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -90,7 +183,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
           <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-6 rounded-lg shadow-md text-white">
             <Plus className="w-12 h-12 mb-3" />
             <h3 className="font-semibold text-lg mb-2">Quick Start</h3>
-            <p className="text-sm opacity-90">Create a new project to begin</p>
+            <p className="text-sm opacity-90">Drag a ZIP or select files above</p>
           </div>
         </div>
 
@@ -212,7 +305,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
               <button
                 onClick={() => {
                   setShowUploadModal(false)
-                  setFormData({ name: '', clientName: '', description: '', url: '', files: [] })
+                  setFormData({ name: '', clientName: '', description: '', url: '', files: [], assets: {} })
                   setUploadType(null)
                 }}
                 className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"

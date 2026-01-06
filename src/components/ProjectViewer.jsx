@@ -148,7 +148,58 @@ export default function ProjectViewer({ project, onBack }) {
     if (project.type === 'url') {
       return currentPageData.path
     } else {
-      return `data:text/html;charset=utf-8,${encodeURIComponent(currentPageData.content)}`
+      let htmlContent = currentPageData.content
+
+      if (project.assets) {
+        const baseDir = currentPageData.relativePath.split('/').slice(0, -1).join('/')
+
+        for (const [assetPath, assetData] of Object.entries(project.assets)) {
+          const fileName = assetPath.split('/').pop()
+          const assetDir = assetPath.split('/').slice(0, -1).join('/')
+
+          let relativePath = assetPath
+          if (baseDir) {
+            const pathParts = assetPath.split('/')
+            const baseParts = baseDir.split('/')
+
+            let commonLength = 0
+            for (let i = 0; i < Math.min(pathParts.length, baseParts.length); i++) {
+              if (pathParts[i] === baseParts[i]) {
+                commonLength++
+              } else {
+                break
+              }
+            }
+
+            const upLevels = baseParts.length - commonLength
+            const downPath = pathParts.slice(commonLength).join('/')
+            relativePath = '../'.repeat(upLevels) + downPath
+          }
+
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']${fileName}["']`, 'g'),
+            `$1="${assetData}"`
+          )
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']${relativePath}["']`, 'g'),
+            `$1="${assetData}"`
+          )
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']${assetPath}["']`, 'g'),
+            `$1="${assetData}"`
+          )
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']\\./${fileName}["']`, 'g'),
+            `$1="${assetData}"`
+          )
+          htmlContent = htmlContent.replace(
+            new RegExp(`(src|href)=["']\\.\\./${fileName}["']`, 'g'),
+            `$1="${assetData}"`
+          )
+        }
+      }
+
+      return `data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`
     }
   }
 
