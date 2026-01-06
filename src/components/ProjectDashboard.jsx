@@ -78,15 +78,22 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
   const handleCreateProject = async () => {
     setUploading(true)
     setUploadError(null)
-    setUploadProgress('Preparing upload...')
+    setUploadProgress('Extracting files...')
 
     try {
       if (uploadType === 'zip' && zipFile) {
-        setUploadProgress('Uploading to cloud...')
         const result = await api.uploadProject(zipFile, {
           name: formData.name || 'Untitled Project',
           clientName: formData.clientName,
           description: formData.description,
+        }, (progress) => {
+          if (progress < 10) {
+            setUploadProgress('Extracting files...')
+          } else if (progress < 90) {
+            setUploadProgress(`Uploading files... ${progress}%`)
+          } else {
+            setUploadProgress('Finalising project...')
+          }
         })
         onProjectCreate(result.project)
         setShowUploadModal(false)

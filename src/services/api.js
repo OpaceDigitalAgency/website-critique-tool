@@ -1,35 +1,132 @@
 // API Service for Opace Annotate
 // Handles all communication with Netlify Functions backend
 
+import JSZip from 'jszip';
+
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '1.0.1';
+const API_VERSION = '1.0.2';
+
+// MIME types for common file extensions
+const MIME_TYPES = {
+  html: 'text/html',
+  htm: 'text/html',
+  css: 'text/css',
+  js: 'application/javascript',
+  json: 'application/json',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  webp: 'image/webp',
+  ico: 'image/x-icon',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
+  ttf: 'font/ttf',
+  eot: 'application/vnd.ms-fontobject',
+};
 
 /**
- * Upload a project ZIP file
+ * Upload a project ZIP file using chunked upload
  * @param {File} file - ZIP file to upload
  * @param {Object} metadata - Project metadata (name, clientName, description)
+ * @param {Function} onProgress - Progress callback (0-100)
  * @returns {Promise<Object>} - Created project data
  */
-export async function uploadProject(file, metadata) {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('name', metadata.name || 'Untitled Project');
-  formData.append('clientName', metadata.clientName || '');
-  formData.append('description', metadata.description || '');
+export async function uploadProject(file, metadata, onProgress) {
+  // Step 1: Extract ZIP client-side
+  const zip = new JSZip();
+  const zipContent = await zip.loadAsync(file);
 
-  const response = await fetch(`${API_BASE}/upload-project?v=${API_VERSION}`, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(error.error || 'Upload failed');
+  // Collect files to upload
+  const filesToUpload = [];
+  for (const [path, zipEntry] of Object.entries(zipContent.files)) {
+    if (zipEntry.dir) continue;
+    const ext = path.split('.').pop().toLowerCase();
+    if (MIME_TYPES[ext] || ext === 'map') {
+      filesToUpload.push({ path, zipEntry });
+    }
   }
 
-  return response.json();
+  // Step 2: Initialise project on server
+  const initResponse = await fetch(`${API_BASE}/init-project?v=${API_VERSION}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: metadata.name || 'Untitled Project',
+      clientName: metadata.clientName || '',
+      description: metadata.description || '',
+      fileCount: filesToUpload.length,
+    }),
+  });
+
+  if (!initResponse.ok) {
+    const error = await initResponse.json().catch(() => ({ error: 'Failed to initialise project' }));
+    throw new Error(error.error || 'Failed to initialise project');
+  }
+
+  const { projectId } = await initResponse.json();
+
+  // Step 3: Upload files in batches
+  const BATCH_SIZE = 3; // Upload 3 files concurrently
+  let uploadedCount = 0;
+
+  for (let i = 0; i < filesToUpload.length; i += BATCH_SIZE) {
+    const batch = filesToUpload.slice(i, i + BATCH_SIZE);
+
+    await Promise.all(batch.map(async ({ path, zipEntry }) => {
+      const ext = path.split('.').pop().toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      const isHtml = ext === 'html' || ext === 'htm';
+
+      const formData = new FormData();
+      formData.append('projectId', projectId);
+      formData.append('path', path);
+      formData.append('contentType', contentType);
+      formData.append('isHtml', isHtml.toString());
+
+      if (isHtml || ext === 'css' || ext === 'js' || ext === 'json' || ext === 'svg') {
+        const content = await zipEntry.async('text');
+        formData.append('file', content);
+      } else {
+        const blob = await zipEntry.async('blob');
+        formData.append('file', blob);
+      }
+
+      const uploadResponse = await fetch(`${API_BASE}/upload-file?v=${API_VERSION}`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Failed to upload ${path}`);
+      }
+
+      uploadedCount++;
+      if (onProgress) {
+        onProgress(Math.round((uploadedCount / filesToUpload.length) * 90));
+      }
+    }));
+  }
+
+  // Step 4: Finalise project
+  if (onProgress) onProgress(95);
+
+  const finaliseResponse = await fetch(`${API_BASE}/finalise-project?v=${API_VERSION}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  });
+
+  if (!finaliseResponse.ok) {
+    const error = await finaliseResponse.json().catch(() => ({ error: 'Failed to finalise project' }));
+    throw new Error(error.error || 'Failed to finalise project');
+  }
+
+  if (onProgress) onProgress(100);
+  return finaliseResponse.json();
 }
 
 /**
