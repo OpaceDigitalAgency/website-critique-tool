@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.0.5';
+const API_VERSION = '2.0.6';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -41,15 +41,17 @@ const SKIP_PATTERNS = [
 
 /**
  * Upload a project ZIP file
- * Uses single upload for files <10MB, chunked for larger
+ * Uses single upload for files <4MB, chunked for larger
+ * (Netlify has a 6MB payload limit, and FormData adds overhead)
  * @param {File} file - ZIP file to upload
  * @param {Object} metadata - Project metadata (name, clientName, description)
  * @param {Function} onProgress - Progress callback (0-100)
  * @returns {Promise<Object>} - Created project data
  */
 export async function uploadProject(file, metadata, onProgress) {
-  // For files under 10MB, use direct upload (faster)
-  if (file.size < 10 * 1024 * 1024) {
+  // For files under 4MB, use direct upload (faster)
+  // Above 4MB, use chunked upload to avoid Netlify's 6MB payload limit
+  if (file.size < 4 * 1024 * 1024) {
     return uploadProjectDirect(file, metadata, onProgress);
   }
 

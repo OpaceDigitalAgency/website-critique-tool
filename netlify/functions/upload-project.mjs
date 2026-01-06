@@ -2,7 +2,7 @@ import { getStore } from "@netlify/blobs";
 import JSZip from "jszip";
 
 // Version for cache busting
-const API_VERSION = "2.0.5";
+const API_VERSION = "2.0.6";
 
 // Helper to check if a file should be skipped (macOS metadata, etc.)
 function shouldSkipFile(path) {
@@ -51,11 +51,16 @@ export default async (req, context) => {
   }
 
   try {
+    console.log("[UPLOAD] Starting upload process...");
     const formData = await req.formData();
+    console.log("[UPLOAD] FormData parsed");
+
     const zipFile = formData.get("file");
     const projectName = formData.get("name") || "Untitled Project";
     const clientName = formData.get("clientName") || "";
     const description = formData.get("description") || "";
+
+    console.log(`[UPLOAD] File size: ${zipFile?.size || 0} bytes, Name: ${projectName}`);
 
     if (!zipFile) {
       return new Response(JSON.stringify({ error: "No file uploaded" }), {
