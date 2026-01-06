@@ -43,13 +43,22 @@ export default async (req, context) => {
       });
     }
 
-    // Delete all assets
-    if (project.assetKeys) {
-      for (const assetKey of project.assetKeys) {
+    // Delete all assets - use list with prefix to ensure we get everything
+    console.log(`[DELETE] Deleting all assets for project ${projectId}`);
+    try {
+      const { blobs } = await assetsStore.list({ prefix: projectId });
+      console.log(`[DELETE] Found ${blobs.length} assets to delete`);
+
+      for (const blob of blobs) {
         try {
-          await assetsStore.delete(assetKey);
-        } catch (e) { /* Ignore individual delete errors */ }
+          await assetsStore.delete(blob.key);
+          console.log(`[DELETE] Deleted asset: ${blob.key}`);
+        } catch (e) {
+          console.error(`[DELETE] Failed to delete asset ${blob.key}:`, e);
+        }
       }
+    } catch (e) {
+      console.error(`[DELETE] Failed to list/delete assets:`, e);
     }
 
     // Delete comments
