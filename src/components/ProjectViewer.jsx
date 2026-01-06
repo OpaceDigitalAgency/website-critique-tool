@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.0.1'
+const COMPONENT_VERSION = '2.0.2'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -220,38 +220,53 @@ export default function ProjectViewer({ project, onBack }) {
         const pagePath = currentPageData.relativePath || currentPageData.path || ''
         const baseDir = pagePath.split('/').slice(0, -1).join('/')
 
+        // Build a map of filenames to asset URLs for easier replacement
+        const assetMap = new Map()
         for (const assetKey of project.assetKeys) {
-          // assetKey format: projectId/path/to/file.ext
           const assetPath = assetKey.replace(`${project.id}/`, '')
           const fileName = assetPath.split('/').pop()
           const assetUrl = api.getAssetUrl(project.id, assetPath)
 
-          // Escape special regex characters in paths
-          const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-          // Replace various path formats
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']${escapeRegex(fileName)}["']`, 'g'),
-            `$1="${assetUrl}"`
-          )
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']${escapeRegex(assetPath)}["']`, 'g'),
-            `$1="${assetUrl}"`
-          )
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']\\./${escapeRegex(fileName)}["']`, 'g'),
-            `$1="${assetUrl}"`
-          )
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']\\.\\./${escapeRegex(fileName)}["']`, 'g'),
-            `$1="${assetUrl}"`
-          )
-          // Handle relative paths with directories
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["'][^"']*${escapeRegex(fileName)}["']`, 'g'),
-            `$1="${assetUrl}"`
-          )
+          // Store both full path and filename
+          assetMap.set(assetPath, assetUrl)
+          assetMap.set(fileName, assetUrl)
         }
+
+        // Replace all src and href attributes
+        htmlContent = htmlContent.replace(
+          /(src|href)=["']([^"']+)["']/gi,
+          (match, attr, path) => {
+            // Skip absolute URLs and data URIs
+            if (path.startsWith('http://') || path.startsWith('https://') ||
+                path.startsWith('data:') || path.startsWith('//')) {
+              return match
+            }
+
+            // Clean up the path
+            let cleanPath = path.replace(/^\.\//, '').replace(/^\//, '')
+
+            // Try to find matching asset
+            if (assetMap.has(cleanPath)) {
+              return `${attr}="${assetMap.get(cleanPath)}"`
+            }
+
+            // Try just the filename
+            const fileName = cleanPath.split('/').pop()
+            if (assetMap.has(fileName)) {
+              return `${attr}="${assetMap.get(fileName)}"`
+            }
+
+            // If in a subdirectory, try relative to base
+            if (baseDir && cleanPath.startsWith('../')) {
+              const resolvedPath = cleanPath.replace(/^(\.\.\/)+/, '')
+              if (assetMap.has(resolvedPath)) {
+                return `${attr}="${assetMap.get(resolvedPath)}"`
+              }
+            }
+
+            return match
+          }
+        )
       } else if (project.assets) {
         // Legacy local assets (base64 encoded)
         const pagePath = currentPageData.relativePath || currentPageData.path || ''

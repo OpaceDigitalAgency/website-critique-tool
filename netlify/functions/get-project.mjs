@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
 // API version for cache busting
-const API_VERSION = "2.0.1";
+const API_VERSION = "2.0.2";
 
 export default async (req, context) => {
   const corsHeaders = {
@@ -66,6 +66,22 @@ export default async (req, context) => {
           }
         })
       );
+
+      // Sort pages to prioritize index/home pages first
+      pagesWithContent.sort((a, b) => {
+        const aName = (a.name || a.path || "").toLowerCase();
+        const bName = (b.name || b.path || "").toLowerCase();
+
+        const aIsHome = aName.includes("index") || aName.includes("home");
+        const bIsHome = bName.includes("index") || bName.includes("home");
+
+        if (aIsHome && !bIsHome) return -1;
+        if (!aIsHome && bIsHome) return 1;
+
+        // If both or neither are home pages, sort alphabetically
+        return aName.localeCompare(bName);
+      });
+
       projectData.pages = pagesWithContent;
     }
 
