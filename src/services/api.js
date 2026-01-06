@@ -28,27 +28,87 @@ const MIME_TYPES = {
   eot: 'application/vnd.ms-fontobject',
 };
 
+// Files to skip during upload (source maps, etc.)
+const SKIP_PATTERNS = [
+  /\.map$/i,
+  /\.DS_Store$/i,
+  /thumbs\.db$/i,
+  /__MACOSX\//i,
+  /node_modules\//i,
+];
+
 /**
- * Upload a project ZIP file using chunked upload
+ * Upload a project ZIP file
+ * Uses single upload for files <10MB, chunked for larger
  * @param {File} file - ZIP file to upload
  * @param {Object} metadata - Project metadata (name, clientName, description)
  * @param {Function} onProgress - Progress callback (0-100)
  * @returns {Promise<Object>} - Created project data
  */
 export async function uploadProject(file, metadata, onProgress) {
+  // For files under 10MB, use direct upload (faster)
+  if (file.size < 10 * 1024 * 1024) {
+    return uploadProjectDirect(file, metadata, onProgress);
+  }
+
+  // For larger files, use chunked upload
+  return uploadProjectChunked(file, metadata, onProgress);
+}
+
+/**
+ * Direct upload for smaller files
+ */
+async function uploadProjectDirect(file, metadata, onProgress) {
+  if (onProgress) onProgress(10);
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('name', metadata.name || 'Untitled Project');
+  formData.append('clientName', metadata.clientName || '');
+  formData.append('description', metadata.description || '');
+
+  if (onProgress) onProgress(30);
+
+  const response = await fetch(`${API_BASE}/upload-project?v=${API_VERSION}`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (onProgress) onProgress(90);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(error.error || 'Upload failed');
+  }
+
+  if (onProgress) onProgress(100);
+  return response.json();
+}
+
+/**
+ * Chunked upload for larger files
+ */
+async function uploadProjectChunked(file, metadata, onProgress) {
   // Step 1: Extract ZIP client-side
+  if (onProgress) onProgress(5);
   const zip = new JSZip();
   const zipContent = await zip.loadAsync(file);
 
-  // Collect files to upload
+  // Collect files to upload (filter out unnecessary files)
   const filesToUpload = [];
   for (const [path, zipEntry] of Object.entries(zipContent.files)) {
     if (zipEntry.dir) continue;
+
+    // Skip unwanted files
+    if (SKIP_PATTERNS.some(pattern => pattern.test(path))) continue;
+
     const ext = path.split('.').pop().toLowerCase();
-    if (MIME_TYPES[ext] || ext === 'map') {
+    if (MIME_TYPES[ext]) {
       filesToUpload.push({ path, zipEntry });
     }
   }
+
+  if (onProgress) onProgress(10);
 
   // Step 2: Initialise project on server
   const initResponse = await fetch(`${API_BASE}/init-project?v=${API_VERSION}`, {
@@ -69,8 +129,8 @@ export async function uploadProject(file, metadata, onProgress) {
 
   const { projectId } = await initResponse.json();
 
-  // Step 3: Upload files in batches
-  const BATCH_SIZE = 3; // Upload 3 files concurrently
+  // Step 3: Upload files with high concurrency
+  const BATCH_SIZE = 10; // Upload 10 files concurrently
   let uploadedCount = 0;
 
   for (let i = 0; i < filesToUpload.length; i += BATCH_SIZE) {
@@ -106,7 +166,7 @@ export async function uploadProject(file, metadata, onProgress) {
 
       uploadedCount++;
       if (onProgress) {
-        onProgress(Math.round((uploadedCount / filesToUpload.length) * 90));
+        onProgress(10 + Math.round((uploadedCount / filesToUpload.length) * 80));
       }
     }));
   }

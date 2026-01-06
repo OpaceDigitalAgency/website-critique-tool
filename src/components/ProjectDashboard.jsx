@@ -165,8 +165,8 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-semibold text-neutral-800">Annotate</h1>
-                <p className="text-xs text-neutral-500">by Opace</p>
+                <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
+                <p className="text-xs text-neutral-500">The Visual Feedback &amp; Website Critique Tool</p>
               </div>
             </div>
 
@@ -536,4 +536,3 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     </div>
   )
 }
-
