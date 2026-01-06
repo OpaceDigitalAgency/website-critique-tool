@@ -163,15 +163,31 @@ export default async (req, context) => {
       assetKeys: assetKeys,
     };
 
+    console.log(`[UPLOAD] Creating project metadata:`, {
+      id: projectId,
+      name: projectName,
+      pageCount: pages.length,
+      assetCount: assetKeys.length
+    });
+
     // Save project metadata
+    console.log(`[UPLOAD] Saving project to blob store...`);
     await projectsStore.set(projectId, JSON.stringify(project), { metadata: { contentType: "application/json" } });
+    console.log(`[UPLOAD] Project metadata saved successfully`);
+
+    // Verify it was saved
+    const savedProject = await projectsStore.get(projectId, { type: "json" });
+    console.log(`[UPLOAD] Verification: Project retrieved from store:`, savedProject ? "YES" : "NO");
 
     // Update projects list
     let projectsList = [];
     try {
       const existingList = await projectsStore.get("_list", { type: "json" });
       if (existingList) projectsList = existingList;
-    } catch (e) { /* List doesn't exist yet */ }
+      console.log(`[UPLOAD] Existing projects list has ${projectsList.length} projects`);
+    } catch (e) {
+      console.log(`[UPLOAD] No existing projects list found`);
+    }
 
     projectsList.push({
       id: projectId,
@@ -180,7 +196,9 @@ export default async (req, context) => {
       createdAt: project.createdAt,
       pageCount: pages.length,
     });
+    console.log(`[UPLOAD] Updating projects list with ${projectsList.length} projects`);
     await projectsStore.set("_list", JSON.stringify(projectsList), { metadata: { contentType: "application/json" } });
+    console.log(`[UPLOAD] Projects list updated successfully`);
 
     return new Response(JSON.stringify({
       success: true,
