@@ -1,5 +1,31 @@
 import { getStore } from "@netlify/blobs";
 
+// Version for cache busting
+const API_VERSION = "2.0.4";
+
+// Helper to check if HTML has meaningful body content
+function hasBodyContent(html) {
+  if (!html || typeof html !== 'string') return false;
+
+  // Extract body content
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (!bodyMatch) return false;
+
+  let bodyContent = bodyMatch[1];
+
+  // Remove script tags
+  bodyContent = bodyContent.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  // Remove empty divs like <div id="app"></div>
+  bodyContent = bodyContent.replace(/<div[^>]*>\s*<\/div>/gi, '');
+  // Remove comments
+  bodyContent = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
+  // Remove whitespace
+  bodyContent = bodyContent.replace(/\s+/g, '').trim();
+
+  // Check if there's any meaningful content left
+  return bodyContent.length > 10;
+}
+
 export default async (req, context) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -60,12 +86,16 @@ export default async (req, context) => {
     projectData.assetKeys.push(assetKey);
 
     if (isHtml) {
-      const fileName = filePath.split("/").pop();
-      projectData.pages.push({
-        name: fileName,
-        path: filePath,
-        assetKey: assetKey,
-      });
+      // Only add pages with meaningful body content
+      const fileContent = typeof file === 'string' ? file : await file.text?.() || '';
+      if (hasBodyContent(fileContent)) {
+        const fileName = filePath.split("/").pop();
+        projectData.pages.push({
+          name: fileName,
+          path: filePath,
+          assetKey: assetKey,
+        });
+      }
     }
 
     await projectsStore.set(projectId, JSON.stringify(projectData), {

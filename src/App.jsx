@@ -5,7 +5,7 @@ import api from './services/api'
 import './App.css'
 
 // App version for cache busting
-const APP_VERSION = '2.0.3'
+const APP_VERSION = '2.0.4'
 
 function App() {
   const [currentView, setCurrentView] = useState('dashboard')

@@ -30,6 +30,15 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     url: '',
   })
 
+  const handleDeleteProject = (projectId, e) => {
+    if (e) {
+      e.stopPropagation()
+    }
+    if (window.confirm('Delete this project? This cannot be undone.')) {
+      onProjectDelete(projectId)
+    }
+  }
+
   const handleFileSelect = (e, type) => {
     const files = Array.from(e.target.files)
     if (type === 'zip' && files[0]?.name.endsWith('.zip')) {
@@ -350,10 +359,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <h3 className="font-medium text-neutral-800 truncate">{project.name}</h3>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onProjectDelete(project.id)
-                      }}
+                      onClick={(e) => handleDeleteProject(project.id, e)}
                       className="opacity-0 group-hover:opacity-100 p-1 hover:bg-neutral-100 rounded transition-all"
                     >
                       <Trash2 className="w-4 h-4 text-neutral-400 hover:text-red-500" />
@@ -392,6 +398,13 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                     <button className="flex-1 py-2 bg-primary-600 text-white text-sm rounded-lg
                                      hover:bg-primary-700 transition-colors flex items-center justify-center gap-1.5">
                       <Eye className="w-3.5 h-3.5" /> Open
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteProject(project.id, e)}
+                      className="flex-1 py-2 bg-red-50 text-red-700 text-sm rounded-lg
+                               hover:bg-red-100 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
                   </div>
                 )}

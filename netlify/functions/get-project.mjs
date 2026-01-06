@@ -1,7 +1,30 @@
 import { getStore } from "@netlify/blobs";
 
 // API version for cache busting
-const API_VERSION = "2.0.2";
+const API_VERSION = "2.0.4";
+
+// Helper to check if HTML has meaningful body content
+function hasBodyContent(html) {
+  if (!html || typeof html !== 'string') return false;
+
+  // Extract body content
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (!bodyMatch) return false;
+
+  let bodyContent = bodyMatch[1];
+
+  // Remove script tags
+  bodyContent = bodyContent.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  // Remove empty divs like <div id="app"></div>
+  bodyContent = bodyContent.replace(/<div[^>]*>\s*<\/div>/gi, '');
+  // Remove comments
+  bodyContent = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
+  // Remove whitespace
+  bodyContent = bodyContent.replace(/\s+/g, '').trim();
+
+  // Check if there's any meaningful content left
+  return bodyContent.length > 10;
+}
 
 export default async (req, context) => {
   const corsHeaders = {
@@ -40,16 +63,24 @@ export default async (req, context) => {
 
     // Fetch HTML content for each page from assets store
     if (projectData.pages && projectData.pages.length > 0) {
-      const pagesWithContent = await Promise.all(
+      const pagesWithContent = (await Promise.all(
         projectData.pages.map(async (page) => {
           try {
             if (page.assetKey) {
               const content = await assetsStore.get(page.assetKey, { type: "text" });
+              // Skip pages without meaningful content
+              if (!hasBodyContent(content)) {
+                return null;
+              }
               return {
                 ...page,
                 relativePath: page.path, // Add relativePath for compatibility
                 content: content || "",
               };
+            }
+            // Skip pages without meaningful content
+            if (!hasBodyContent(page.content)) {
+              return null;
             }
             return {
               ...page,
@@ -58,14 +89,10 @@ export default async (req, context) => {
             };
           } catch (err) {
             console.error(`Failed to fetch content for ${page.assetKey}:`, err);
-            return {
-              ...page,
-              relativePath: page.path,
-              content: "",
-            };
+            return null;
           }
         })
-      );
+      )).filter(page => page !== null);
 
       // Sort pages to prioritize index/home pages first
       pagesWithContent.sort((a, b) => {

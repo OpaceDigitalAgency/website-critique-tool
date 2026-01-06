@@ -1,6 +1,9 @@
 import { getStore } from "@netlify/blobs";
 import JSZip from "jszip";
 
+// Version for cache busting
+const API_VERSION = "2.0.4";
+
 // Helper to check if a file should be skipped (macOS metadata, etc.)
 function shouldSkipFile(path) {
   const fileName = path.split("/").pop();
@@ -11,6 +14,29 @@ function shouldSkipFile(path) {
     fileName === ".DS_Store" ||
     fileName.endsWith(".map")
   );
+}
+
+// Helper to check if HTML has meaningful body content
+function hasBodyContent(html) {
+  if (!html || typeof html !== 'string') return false;
+
+  // Extract body content
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (!bodyMatch) return false;
+
+  let bodyContent = bodyMatch[1];
+
+  // Remove script tags
+  bodyContent = bodyContent.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  // Remove empty divs like <div id="app"></div>
+  bodyContent = bodyContent.replace(/<div[^>]*>\s*<\/div>/gi, '');
+  // Remove comments
+  bodyContent = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
+  // Remove whitespace
+  bodyContent = bodyContent.replace(/\s+/g, '').trim();
+
+  // Check if there's any meaningful content left
+  return bodyContent.length > 10;
 }
 
 export default async (req, context) => {
@@ -74,13 +100,17 @@ export default async (req, context) => {
 
       if (path.toLowerCase().endsWith(".html")) {
         const content = await zipEntry.async("text");
-        await assetsStore.set(assetKey, content, { metadata: { contentType: "text/html" } });
-        pages.push({
-          name: fileName,
-          path: path,
-          assetKey: assetKey,
-        });
-        assetKeys.push(assetKey);
+
+        // Only add pages with meaningful body content
+        if (hasBodyContent(content)) {
+          await assetsStore.set(assetKey, content, { metadata: { contentType: "text/html" } });
+          pages.push({
+            name: fileName,
+            path: path,
+            assetKey: assetKey,
+          });
+          assetKeys.push(assetKey);
+        }
       } else if (path.match(/\.(css|js|jpg|jpeg|png|gif|svg|webp|ico|woff|woff2|ttf|eot)$/i)) {
         const arrayBuffer = await zipEntry.async("arraybuffer");
         
