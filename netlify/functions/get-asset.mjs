@@ -24,7 +24,16 @@ export default async (req, context) => {
     }
 
     const projectId = pathMatch[1];
-    const assetPath = pathMatch[2];
+    let assetPath = pathMatch[2];
+
+    try {
+      assetPath = decodeURIComponent(assetPath);
+    } catch (error) {
+      return new Response(JSON.stringify({ error: "Invalid asset path encoding" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
     const assetKey = `${projectId}/${assetPath}`;
 
     const assetsStore = getStore("assets");
@@ -60,4 +69,3 @@ export default async (req, context) => {
 export const config = {
   path: "/api/asset/:projectId/*",
 };
-
