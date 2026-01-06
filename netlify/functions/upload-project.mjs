@@ -2,15 +2,16 @@ import { getStore } from "@netlify/blobs";
 import JSZip from "jszip";
 
 // Version for cache busting
-const API_VERSION = "2.0.4";
+const API_VERSION = "2.0.5";
 
 // Helper to check if a file should be skipped (macOS metadata, etc.)
 function shouldSkipFile(path) {
   const fileName = path.split("/").pop();
-  // Skip macOS resource forks (._filename), __MACOSX folder, .DS_Store, source maps
+  // Skip macOS resource forks (._filename), __MACOSX folder, .DS_Store, source maps, node_modules
   return (
     fileName.startsWith("._") ||
     path.includes("__MACOSX/") ||
+    path.includes("node_modules/") ||
     fileName === ".DS_Store" ||
     fileName.endsWith(".map")
   );
@@ -210,8 +211,12 @@ export default async (req, context) => {
     });
 
   } catch (error) {
-    console.error("Upload error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error("[UPLOAD] Upload error:", error);
+    console.error("[UPLOAD] Error stack:", error.stack);
+    return new Response(JSON.stringify({
+      error: error.message || "Upload failed",
+      details: error.stack
+    }), {
       status: 500,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
     });

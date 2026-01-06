@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.0.4';
+const API_VERSION = '2.0.5';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -196,8 +196,12 @@ async function uploadProjectChunked(file, metadata, onProgress) {
  * @returns {Promise<Array>} - Array of project summaries
  */
 export async function listProjects() {
-  const response = await fetch(`${API_BASE}/projects?v=${API_VERSION}`);
-  
+  // Add timestamp to prevent caching after uploads/deletes
+  const timestamp = Date.now();
+  const response = await fetch(`${API_BASE}/projects?v=${API_VERSION}&t=${timestamp}`, {
+    cache: 'no-store'
+  });
+
   if (!response.ok) {
     throw new Error('Failed to fetch projects');
   }

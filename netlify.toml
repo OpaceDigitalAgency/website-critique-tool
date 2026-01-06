@@ -7,6 +7,12 @@
   node_bundler = "esbuild"
   included_files = ["node_modules/jszip/**"]
 
+# Increase timeout for upload function
+[[functions]]
+  path = "upload-project"
+  node_bundler = "esbuild"
+  included_files = ["node_modules/jszip/**"]
+
 # API routes - serve functions before static files
 [[redirects]]
   from = "/api/*"
