@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.0.6';
+const API_VERSION = '2.0.7';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -100,18 +100,28 @@ async function uploadProjectChunked(file, metadata, onProgress) {
 
   // Collect files to upload (filter out unnecessary files)
   const filesToUpload = [];
+  const skippedFiles = [];
+
   for (const [path, zipEntry] of Object.entries(zipContent.files)) {
     if (zipEntry.dir) continue;
 
     // Skip unwanted files
-    if (SKIP_PATTERNS.some(pattern => pattern.test(path))) continue;
+    if (SKIP_PATTERNS.some(pattern => pattern.test(path))) {
+      console.log(`[CHUNKED] Skipping file (pattern match): ${path}`);
+      continue;
+    }
 
     const ext = path.split('.').pop().toLowerCase();
     if (MIME_TYPES[ext]) {
       filesToUpload.push({ path, zipEntry });
+      console.log(`[CHUNKED] Will upload: ${path} (${ext})`);
+    } else {
+      skippedFiles.push(path);
+      console.log(`[CHUNKED] Skipping file (unknown type): ${path} (ext: ${ext})`);
     }
   }
 
+  console.log(`[CHUNKED] Total files to upload: ${filesToUpload.length}, Skipped: ${skippedFiles.length}`);
   if (onProgress) onProgress(10);
 
   // Step 2: Initialise project on server
@@ -136,43 +146,59 @@ async function uploadProjectChunked(file, metadata, onProgress) {
   // Step 3: Upload files with high concurrency
   const BATCH_SIZE = 10; // Upload 10 files concurrently
   let uploadedCount = 0;
+  const failedUploads = [];
 
   for (let i = 0; i < filesToUpload.length; i += BATCH_SIZE) {
     const batch = filesToUpload.slice(i, i + BATCH_SIZE);
 
     await Promise.all(batch.map(async ({ path, zipEntry }) => {
-      const ext = path.split('.').pop().toLowerCase();
-      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-      const isHtml = ext === 'html' || ext === 'htm';
+      try {
+        const ext = path.split('.').pop().toLowerCase();
+        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+        const isHtml = ext === 'html' || ext === 'htm';
 
-      const formData = new FormData();
-      formData.append('projectId', projectId);
-      formData.append('path', path);
-      formData.append('contentType', contentType);
-      formData.append('isHtml', isHtml.toString());
+        const formData = new FormData();
+        formData.append('projectId', projectId);
+        formData.append('path', path);
+        formData.append('contentType', contentType);
+        formData.append('isHtml', isHtml.toString());
 
-      if (isHtml || ext === 'css' || ext === 'js' || ext === 'json' || ext === 'svg') {
-        const content = await zipEntry.async('text');
-        formData.append('file', content);
-      } else {
-        const blob = await zipEntry.async('blob');
-        formData.append('file', blob);
-      }
+        if (isHtml || ext === 'css' || ext === 'js' || ext === 'json' || ext === 'svg') {
+          const content = await zipEntry.async('text');
+          formData.append('file', content);
+        } else {
+          const blob = await zipEntry.async('blob');
+          formData.append('file', blob);
+        }
 
-      const uploadResponse = await fetch(`${API_BASE}/upload-file?v=${API_VERSION}`, {
-        method: 'POST',
-        body: formData,
-      });
+        const uploadResponse = await fetch(`${API_BASE}/upload-file?v=${API_VERSION}`, {
+          method: 'POST',
+          body: formData,
+        });
 
-      if (!uploadResponse.ok) {
-        throw new Error(`Failed to upload ${path}`);
-      }
+        if (!uploadResponse.ok) {
+          const errorData = await uploadResponse.json().catch(() => ({}));
+          console.error(`[CHUNKED] Failed to upload ${path}:`, errorData);
+          failedUploads.push(path);
+          throw new Error(`Failed to upload ${path}: ${errorData.error || 'Unknown error'}`);
+        }
 
-      uploadedCount++;
-      if (onProgress) {
-        onProgress(10 + Math.round((uploadedCount / filesToUpload.length) * 80));
+        uploadedCount++;
+        console.log(`[CHUNKED] Uploaded ${uploadedCount}/${filesToUpload.length}: ${path}`);
+
+        if (onProgress) {
+          onProgress(10 + Math.round((uploadedCount / filesToUpload.length) * 80));
+        }
+      } catch (error) {
+        console.error(`[CHUNKED] Error uploading ${path}:`, error);
+        failedUploads.push(path);
+        throw error;
       }
     }));
+  }
+
+  if (failedUploads.length > 0) {
+    console.error(`[CHUNKED] Failed uploads: ${failedUploads.join(', ')}`);
   }
 
   // Step 4: Finalise project

@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
 // Version for cache busting
-const API_VERSION = "2.0.4";
+const API_VERSION = "2.0.7";
 
 // Helper to check if HTML has meaningful body content
 function hasBodyContent(html) {
@@ -52,7 +52,10 @@ export default async (req, context) => {
     const contentType = formData.get("contentType") || "application/octet-stream";
     const isHtml = formData.get("isHtml") === "true";
 
+    console.log(`[UPLOAD-FILE] Uploading: ${filePath} (${contentType}, isHtml: ${isHtml})`);
+
     if (!projectId || !filePath || !file) {
+      console.error(`[UPLOAD-FILE] Missing fields - projectId: ${!!projectId}, filePath: ${!!filePath}, file: ${!!file}`);
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
         headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -88,13 +91,19 @@ export default async (req, context) => {
     if (isHtml) {
       // Only add pages with meaningful body content
       const fileContent = typeof file === 'string' ? file : await file.text?.() || '';
-      if (hasBodyContent(fileContent)) {
+      const hasContent = hasBodyContent(fileContent);
+      console.log(`[UPLOAD-FILE] HTML file ${filePath} has body content: ${hasContent}`);
+
+      if (hasContent) {
         const fileName = filePath.split("/").pop();
         projectData.pages.push({
           name: fileName,
           path: filePath,
           assetKey: assetKey,
         });
+        console.log(`[UPLOAD-FILE] Added page: ${fileName}`);
+      } else {
+        console.log(`[UPLOAD-FILE] Skipped page (no body content): ${filePath}`);
       }
     }
 
