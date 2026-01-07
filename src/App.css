@@ -99,3 +99,32 @@
   cursor: crosshair;
 }
 
+.comment-overlay.dragging {
+  cursor: grabbing !important;
+}
+
+/* Draggable elements */
+.comment-pin {
+  cursor: grab;
+}
+
+.comment-pin:active,
+.comment-pin.dragging {
+  cursor: grabbing;
+  opacity: 0.8;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.comment-rect-number.draggable {
+  cursor: grab;
+}
+
+.comment-rect-number.draggable:active {
+  cursor: grabbing;
+}
+
+.comment-rect.dragging {
+  opacity: 0.8;
+  border-style: dashed;
+}
+
