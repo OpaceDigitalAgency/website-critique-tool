@@ -46,7 +46,7 @@ export default function ProjectViewer({ project, onBack }) {
   // Refs for drag state to avoid stale closures
   const dragStateRef = useRef({ isDragging: false, draggedComment: null, dragOffset: { x: 0, y: 0 } })
   const commentsRef = useRef(comments)
-  const currentPageDataRef = useRef(currentPageData)
+  const currentPageDataRef = useRef(null)
 
   // Reset page/viewport when switching projects
   useEffect(() => {
