@@ -8,7 +8,7 @@ import {
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '3.0.2'
+const COMPONENT_VERSION = '3.1.0'
 
 const IMAGE_VIEWPORTS = [
   { key: 'desktop', label: 'Desktop' },
@@ -497,7 +497,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     <div className="min-h-screen bg-neutral-50">
       {/* Header */}
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <img
@@ -533,7 +533,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main className="mx-auto px-6 py-8">
         {/* Upload Zone */}
         <div
           className={`mb-10 p-10 border-2 border-dashed rounded-2xl text-center
