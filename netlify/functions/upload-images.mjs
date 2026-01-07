@@ -64,7 +64,22 @@ export default async (req) => {
       });
     }
 
-    const assignments = JSON.parse(assignmentsRaw);
+    const assignmentsText =
+      typeof assignmentsRaw === "string"
+        ? assignmentsRaw
+        : typeof assignmentsRaw?.text === "function"
+        ? await assignmentsRaw.text()
+        : "";
+
+    let assignments;
+    try {
+      assignments = JSON.parse(assignmentsText);
+    } catch (error) {
+      return new Response(JSON.stringify({ error: "Invalid assignments payload" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
     if (!Array.isArray(assignments) || assignments.length === 0) {
       return new Response(JSON.stringify({ error: "No images provided" }), {
         status: 400,
@@ -94,7 +109,7 @@ export default async (req) => {
       const fileField = assignment.fileField;
       const file = formData.get(fileField);
 
-      if (!file) {
+      if (!file || typeof file.arrayBuffer !== "function") {
         return new Response(JSON.stringify({ error: `Missing image data for ${pageName}` }), {
           status: 400,
           headers: { "Content-Type": "application/json", ...corsHeaders },

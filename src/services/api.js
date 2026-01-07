@@ -344,6 +344,16 @@ export function getAssetUrl(projectId, assetPath) {
 }
 
 /**
+ * Get page URL for a project HTML page
+ * @param {string} projectId - Project ID
+ * @param {string} pagePath - Path to the HTML page within the project
+ * @returns {string} - URL to fetch the page
+ */
+export function getPageUrl(projectId, pagePath) {
+  return `${API_BASE}/page/${projectId}/${pagePath}?v=${API_VERSION}`;
+}
+
+/**
  * Get comments for a project page
  * @param {string} projectId - Project ID
  * @param {string} pageKey - Optional page key for page-specific comments
@@ -406,6 +416,7 @@ export default {
   getProject,
   deleteProject,
   getAssetUrl,
+  getPageUrl,
   getComments,
   saveComments,
   getShareUrl,

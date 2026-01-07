@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.0.5'
+const COMPONENT_VERSION = '2.0.9'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -102,6 +102,7 @@ export default function ProjectViewer({ project, onBack }) {
   }, [comments, saveCommentsToCloud])
 
   const currentPageData = project.pages[currentPage]
+  const isImageProject = project.type === 'images' || Boolean(currentPageData?.variants)
 
   const handleOverlayClick = (e) => {
     if (!commentMode) return
@@ -214,107 +215,47 @@ export default function ProjectViewer({ project, onBack }) {
     pdf.save(`${project.name}-feedback.pdf`)
   }
 
-  const resolveAssetUrl = (assetMap, baseDir, rawPath) => {
-    if (!rawPath) return null
-    const [pathOnly, suffix = ''] = rawPath.split(/([?#].*)/)
-    const cleanPath = pathOnly.replace(/^\.\//, '').replace(/^\//, '')
-
-    if (baseDir) {
-      const withBaseDir = `${baseDir}/${cleanPath}`.replace(/\/+/g, '/')
-      if (assetMap.has(withBaseDir)) {
-        return `${assetMap.get(withBaseDir)}${suffix}`
-      }
-    }
-
-    if (assetMap.has(cleanPath)) {
-      return `${assetMap.get(cleanPath)}${suffix}`
-    }
-
-    const fileName = cleanPath.split('/').pop()
-    if (fileName && assetMap.has(fileName)) {
-      return `${assetMap.get(fileName)}${suffix}`
-    }
-
-    return null
-  }
-
   // Returns { type: 'url' | 'srcdoc', content: string }
   const getIframeContent = () => {
     if (project.type === 'url') {
       return { type: 'url', content: currentPageData.path }
-    } else {
+    } else if (project.assetKeys && project.assetKeys.length > 0) {
+      // Cloud-based project - use the page URL endpoint for proper navigation
+      const pagePath = currentPageData.relativePath || currentPageData.path || ''
+      return { type: 'url', content: api.getPageUrl(project.id, pagePath) }
+    } else if (project.assets) {
+      // Legacy local assets (base64 encoded) - use srcDoc
       let htmlContent = currentPageData.content || ''
+      const pagePath = currentPageData.relativePath || currentPageData.path || ''
+      const baseDir = pagePath.split('/').slice(0, -1).join('/')
 
-      // Check if we have cloud-stored assets (assetKeys) or local assets
-      if (project.assetKeys && project.assetKeys.length > 0) {
-        // Cloud-based project - replace asset references with absolute API URLs
-        const pagePath = currentPageData.relativePath || currentPageData.path || ''
-        const baseDir = pagePath.split('/').slice(0, -1).join('/')
+      for (const [assetPath, assetData] of Object.entries(project.assets)) {
+        const fileName = assetPath.split('/').pop()
+        const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-        // Build a map of filenames to asset URLs for easier replacement
-        const assetMap = new Map()
-        for (const assetKey of project.assetKeys) {
-          const assetPath = assetKey.replace(`${project.id}/`, '')
-          const fileName = assetPath.split('/').pop()
-          // Use absolute URL with full origin
-          const assetUrl = `${window.location.origin}${api.getAssetUrl(project.id, assetPath)}`
-
-          // Store multiple path variations for matching
-          assetMap.set(assetPath, assetUrl)
-          assetMap.set(fileName, assetUrl)
-          // Also store with baseDir prefix for relative paths
-          if (baseDir) {
-            assetMap.set(`${baseDir}/${fileName}`, assetUrl)
-          }
-        }
-
-        // Replace all src and href attributes with absolute URLs
         htmlContent = htmlContent.replace(
-          /(src|href)=["']([^"']+)["']/gi,
-          (match, attr, path) => {
-            // Skip absolute URLs, data URIs, mailto, tel, and anchors
-            if (path.startsWith('http://') || path.startsWith('https://') ||
-                path.startsWith('data:') || path.startsWith('//') ||
-                path.startsWith('mailto:') || path.startsWith('tel:') ||
-                path.startsWith('#')) {
-              return match
-            }
-
-            const resolved = resolveAssetUrl(assetMap, baseDir, path)
-            return resolved ? `${attr}="${resolved}"` : match
-          }
+          new RegExp(`(src|href)=["']([^"']*${escapedFileName})["']`, 'gi'),
+          `$1="${assetData}"`
         )
-
-        // Also replace url() in inline styles
-        htmlContent = htmlContent.replace(
-          /url\(["']?([^"')]+)["']?\)/gi,
-          (match, path) => {
-            if (path.startsWith('http://') || path.startsWith('https://') ||
-                path.startsWith('data:') || path.startsWith('//')) {
-              return match
-            }
-            const resolved = resolveAssetUrl(assetMap, baseDir, path)
-            return resolved ? `url("${resolved}")` : match
-          }
-        )
-      } else if (project.assets) {
-        // Legacy local assets (base64 encoded)
-        const pagePath = currentPageData.relativePath || currentPageData.path || ''
-        const baseDir = pagePath.split('/').slice(0, -1).join('/')
-
-        for (const [assetPath, assetData] of Object.entries(project.assets)) {
-          const fileName = assetPath.split('/').pop()
-          const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-          htmlContent = htmlContent.replace(
-            new RegExp(`(src|href)=["']([^"']*${escapedFileName})["']`, 'gi'),
-            `$1="${assetData}"`
-          )
-        }
       }
 
       return { type: 'srcdoc', content: htmlContent }
+    } else {
+      // Fallback - use content as-is
+      return { type: 'srcdoc', content: currentPageData.content || '' }
     }
+  }
+
+  const getImageVariantForViewport = () => {
+    if (!currentPageData?.variants) return null
+    const viewportKey = viewport === 'full' ? 'desktop' : viewport
+    return (
+      currentPageData.variants[viewportKey] ||
+      currentPageData.variants.desktop ||
+      currentPageData.variants.tablet ||
+      currentPageData.variants.mobile ||
+      null
+    )
   }
 
   const copyShareUrl = async () => {
@@ -453,31 +394,52 @@ export default function ProjectViewer({ project, onBack }) {
               minHeight: '100%'
             }}
           >
-            <div className="relative" style={{ height: '800px' }}>
-              {(() => {
-                const iframeData = getIframeContent()
-                if (iframeData.type === 'url') {
+            <div className="relative" style={isImageProject ? {} : { height: '800px' }}>
+              {isImageProject ? (
+                (() => {
+                  const variant = getImageVariantForViewport()
+                  if (!variant) {
+                    return (
+                      <div className="w-full h-64 flex items-center justify-center text-sm text-gray-500">
+                        No image available for this viewport.
+                      </div>
+                    )
+                  }
+                  const imageUrl = api.getAssetUrl(project.id, variant.path)
                   return (
-                    <iframe
-                      ref={iframeRef}
-                      src={iframeData.content}
-                      className="w-full h-full border-0"
-                      title={currentPageData.name}
-                      sandbox="allow-same-origin allow-scripts"
+                    <img
+                      src={imageUrl}
+                      alt={currentPageData.name}
+                      className="w-full h-auto block"
                     />
                   )
-                } else {
-                  return (
-                    <iframe
-                      ref={iframeRef}
-                      srcDoc={iframeData.content}
-                      className="w-full h-full border-0"
-                      title={currentPageData.name}
-                      sandbox="allow-same-origin allow-scripts"
-                    />
-                  )
-                }
-              })()}
+                })()
+              ) : (
+                (() => {
+                  const iframeData = getIframeContent()
+                  if (iframeData.type === 'url') {
+                    return (
+                      <iframe
+                        ref={iframeRef}
+                        src={iframeData.content}
+                        className="w-full h-full border-0"
+                        title={currentPageData.name}
+                        sandbox="allow-same-origin allow-scripts"
+                      />
+                    )
+                  } else {
+                    return (
+                      <iframe
+                        ref={iframeRef}
+                        srcDoc={iframeData.content}
+                        className="w-full h-full border-0"
+                        title={currentPageData.name}
+                        sandbox="allow-same-origin allow-scripts"
+                      />
+                    )
+                  }
+                })()
+              )}
 
               <div
                 ref={overlayRef}

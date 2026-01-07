@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
 // API version for cache busting
-const API_VERSION = "2.0.4";
+const API_VERSION = "2.0.9";
 
 export default async (req, context) => {
   const corsHeaders = {
@@ -115,6 +115,21 @@ export default async (req, context) => {
           return resolved ? `url("${resolved}")` : match;
         }
       );
+
+      // Add a base tag to ensure all relative URLs resolve correctly
+      // This is crucial for navigation within iframes using srcDoc
+      const baseTag = `<base href="${baseUrl}/api/asset/${projectId}/${baseDir ? baseDir + '/' : ''}" />`;
+
+      // Insert base tag after <head> tag if it exists
+      if (rewrittenHtml.includes('<head>')) {
+        rewrittenHtml = rewrittenHtml.replace(/<head>/i, `<head>\n${baseTag}`);
+      } else if (rewrittenHtml.includes('<html>')) {
+        // If no head tag, insert after html tag
+        rewrittenHtml = rewrittenHtml.replace(/<html[^>]*>/i, `$&\n<head>\n${baseTag}\n</head>`);
+      } else {
+        // If no html or head tag, prepend to content
+        rewrittenHtml = `<!DOCTYPE html>\n<html>\n<head>\n${baseTag}\n</head>\n<body>\n${rewrittenHtml}\n</body>\n</html>`;
+      }
 
       return rewrittenHtml;
     };

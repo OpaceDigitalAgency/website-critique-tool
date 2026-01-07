@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import {
   Upload, Globe, Plus, Trash2, Eye, Check, Link, Image, FileCode,
   FolderArchive, MoreHorizontal, Clock, Users, Search, Grid3X3, List,
@@ -8,6 +8,59 @@ import api from '../services/api'
 
 // Component version for cache busting
 const COMPONENT_VERSION = '3.0.2'
+
+const IMAGE_VIEWPORTS = [
+  { key: 'desktop', label: 'Desktop' },
+  { key: 'tablet', label: 'Tablet' },
+  { key: 'mobile', label: 'Mobile' },
+]
+
+const VIEWPORT_TOKENS = {
+  desktop: ['desktop', 'desk', 'web', 'pc'],
+  tablet: ['tablet', 'tab'],
+  mobile: ['mobile', 'phone', 'mob'],
+}
+
+const titleCase = (value) => {
+  return value
+    .split(' ')
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+const inferViewport = (fileName) => {
+  const lowerName = fileName.toLowerCase()
+  for (const [viewport, tokens] of Object.entries(VIEWPORT_TOKENS)) {
+    for (const token of tokens) {
+      const regex = new RegExp(`(^|[\\s._-])${token}([\\s._-]|$)`, 'i')
+      if (regex.test(lowerName)) {
+        return viewport
+      }
+    }
+  }
+  return 'desktop'
+}
+
+const inferPageName = (fileName) => {
+  const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '')
+  const normalized = nameWithoutExt.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const viewportTokens = Object.values(VIEWPORT_TOKENS).flat().join('|')
+  const withoutViewport = normalized
+    .replace(new RegExp(`\\b(${viewportTokens})\\b`, 'ig'), '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const baseName = withoutViewport || normalized || 'Page'
+  return titleCase(baseName)
+}
+
+const slugifyPageName = (value) => {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+}
 
 export default function ProjectDashboard({ projects, onProjectSelect, onProjectCreate, onProjectDelete, loading }) {
   const [showUploadModal, setShowUploadModal] = useState(false)
@@ -19,6 +72,8 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
   const [selectedFiles, setSelectedFiles] = useState([])
   const [zipFile, setZipFile] = useState(null)
   const [imageFiles, setImageFiles] = useState([])
+  const [imageAssignments, setImageAssignments] = useState([])
+  const [imageUploadStep, setImageUploadStep] = useState(0)
   const [viewMode, setViewMode] = useState('grid')
   const [searchQuery, setSearchQuery] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -30,6 +85,82 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     description: '',
     url: '',
   })
+
+  const revokeImagePreviews = (assignments) => {
+    assignments.forEach((assignment) => {
+      if (assignment.previewUrl) {
+        URL.revokeObjectURL(assignment.previewUrl)
+      }
+    })
+  }
+
+  const addImageAssignments = (files, viewportOverride = null) => {
+    const images = files.filter(file => file.type.startsWith('image/'))
+    if (images.length === 0) return
+
+    setImageAssignments((prev) => {
+      const existing = new Map(prev.map(item => [item.id, item]))
+      const next = [...prev]
+
+      images.forEach((file) => {
+        const viewport = viewportOverride || inferViewport(file.name)
+        const id = `${file.name}-${file.lastModified}-${viewport}`
+        if (existing.has(id)) return
+        next.push({
+          id,
+          file,
+          pageName: inferPageName(file.name),
+          viewport,
+          previewUrl: URL.createObjectURL(file),
+        })
+      })
+
+      setImageFiles(next.map(item => item.file))
+      setImageUploadStep(0)
+      return next
+    })
+  }
+
+  const updateImageAssignment = (id, updates) => {
+    setImageAssignments((prev) => prev.map((item) => (
+      item.id === id ? { ...item, ...updates } : item
+    )))
+  }
+
+  const imageSummary = useMemo(() => {
+    const pages = new Map()
+    const duplicateKeys = new Set()
+    const usedKeys = new Set()
+    const missingNames = []
+
+    imageAssignments.forEach((assignment) => {
+      const rawName = assignment.pageName?.trim()
+      if (!rawName) {
+        missingNames.push(assignment.id)
+      }
+      const pageName = rawName || 'Untitled Page'
+      const slug = slugifyPageName(pageName) || 'page'
+      const key = `${slug}-${assignment.viewport}`
+
+      if (usedKeys.has(key)) {
+        duplicateKeys.add(key)
+      }
+      usedKeys.add(key)
+
+      if (!pages.has(slug)) {
+        pages.set(slug, { name: pageName, slug, variants: {} })
+      }
+      pages.get(slug).variants[assignment.viewport] = assignment
+    })
+
+    return {
+      pages: Array.from(pages.values()),
+      duplicateKeys,
+      missingNames,
+    }
+  }, [imageAssignments])
+
+  const imageHasIssues = imageSummary.duplicateKeys.size > 0 || imageSummary.missingNames.length > 0
 
   const handleDeleteProject = (projectId, e) => {
     if (e) {
@@ -53,17 +184,24 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     }
   }
 
-  const handleFileSelect = (e, type) => {
-    const files = Array.from(e.target.files)
+  const handleFileSelect = (e, type, viewportOverride = null) => {
+    const files = Array.from(e.target.files || [])
     if (type === 'zip' && files[0]?.name.endsWith('.zip')) {
+      revokeImagePreviews(imageAssignments)
+      setImageAssignments([])
+      setImageFiles([])
+      setImageUploadStep(0)
       setZipFile(files[0])
       setUploadType('zip')
       setShowUploadModal(true)
       applyZipProjectName(files[0].name)
     } else if (type === 'images') {
-      setImageFiles(files.filter(f => f.type.startsWith('image/')))
+      addImageAssignments(files, viewportOverride)
       setUploadType('images')
       setShowUploadModal(true)
+    }
+    if (e.target) {
+      e.target.value = ''
     }
   }
 
@@ -75,6 +213,10 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     // Check for ZIP
     const zipFile = files.find(f => f.name.endsWith('.zip'))
     if (zipFile) {
+      revokeImagePreviews(imageAssignments)
+      setImageAssignments([])
+      setImageFiles([])
+      setImageUploadStep(0)
       setZipFile(zipFile)
       setUploadType('zip')
       setShowUploadModal(true)
@@ -85,7 +227,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     // Check for images
     const images = files.filter(f => f.type.startsWith('image/'))
     if (images.length > 0) {
-      setImageFiles(images)
+      addImageAssignments(images)
       setUploadType('images')
       setShowUploadModal(true)
     }
@@ -101,9 +243,23 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
   }
 
   const handleCreateProject = async () => {
+    if (uploadType === 'images' && imageUploadStep === 0) {
+      if (imageAssignments.length === 0) {
+        setUploadError('Add at least one image to continue.')
+        return
+      }
+      if (imageHasIssues) {
+        setUploadError('Resolve page name or viewport conflicts before continuing.')
+        return
+      }
+      setUploadError(null)
+      setImageUploadStep(1)
+      return
+    }
+
     setUploading(true)
     setUploadError(null)
-    setUploadProgress('Extracting files...')
+    setUploadProgress(uploadType === 'images' ? 'Processing images...' : 'Extracting files...')
 
     try {
       if (uploadType === 'zip' && zipFile) {
@@ -123,9 +279,8 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
         onProjectCreate(result.project)
         setShowUploadModal(false)
         resetForm()
-      } else if (uploadType === 'images' && imageFiles.length > 0) {
-        setUploadProgress('Processing images...')
-        const result = await api.uploadImages(imageFiles, {
+      } else if (uploadType === 'images' && imageAssignments.length > 0) {
+        const result = await api.uploadImages(imageAssignments, {
           name: formData.name || 'Untitled Project',
           clientName: formData.clientName,
           description: formData.description,
@@ -151,6 +306,9 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     setFormData({ name: '', clientName: '', description: '', url: '' })
     setZipFile(null)
     setImageFiles([])
+    revokeImagePreviews(imageAssignments)
+    setImageAssignments([])
+    setImageUploadStep(0)
     setUploadType(null)
     setHasCustomName(false)
   }
@@ -278,7 +436,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
           </button>
 
           <button
-            onClick={() => { setUploadType('images'); document.getElementById('image-upload').click() }}
+            onClick={() => { setUploadType('images'); setShowUploadModal(true) }}
             className="card p-5 text-left hover:border-primary-300 group transition-all"
           >
             <div className="w-10 h-10 rounded-xl bg-pink-100 flex items-center justify-center mb-3
@@ -287,14 +445,6 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
             </div>
             <h3 className="font-medium text-neutral-800 mb-1">Image Mockups</h3>
             <p className="text-sm text-neutral-500">JPG, PNG, WebP, SVG</p>
-            <input
-              id="image-upload"
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => handleFileSelect(e, 'images')}
-              className="hidden"
-            />
           </button>
 
           <button
@@ -525,6 +675,84 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                 />
               </div>
 
+              {uploadType === 'images' && (
+                <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-4 space-y-4">
+                  <div className="space-y-2 text-xs text-neutral-600">
+                    <p className="font-semibold text-neutral-700 uppercase tracking-wide">How image mockups work</p>
+                    <p>Upload each page as an image. Add desktop versions first, then optional tablet/mobile mockups.</p>
+                    <p>Use clear filenames like <span className="font-medium text-neutral-700">homepage-desktop.png</span> so we can auto-match viewports.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('image-upload-desktop')?.click()}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white border border-neutral-200 text-sm text-neutral-700 hover:border-primary-300 transition-colors"
+                    >
+                      <span>Desktop mockups</span>
+                      <span className="text-xs text-neutral-400">Add</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('image-upload-tablet')?.click()}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white border border-neutral-200 text-sm text-neutral-700 hover:border-primary-300 transition-colors"
+                    >
+                      <span>Tablet mockups</span>
+                      <span className="text-xs text-neutral-400">Add</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('image-upload-mobile')?.click()}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white border border-neutral-200 text-sm text-neutral-700 hover:border-primary-300 transition-colors"
+                    >
+                      <span>Mobile mockups</span>
+                      <span className="text-xs text-neutral-400">Add</span>
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('image-upload-mixed')?.click()}
+                    className="w-full px-3 py-2 rounded-lg border border-dashed border-neutral-300 text-sm text-neutral-600 hover:border-primary-300 hover:text-primary-700 transition-colors"
+                  >
+                    Upload a mixed batch (we'll try to detect device from filenames)
+                  </button>
+
+                  <input
+                    id="image-upload-desktop"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleFileSelect(e, 'images', 'desktop')}
+                    className="hidden"
+                  />
+                  <input
+                    id="image-upload-tablet"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleFileSelect(e, 'images', 'tablet')}
+                    className="hidden"
+                  />
+                  <input
+                    id="image-upload-mobile"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleFileSelect(e, 'images', 'mobile')}
+                    className="hidden"
+                  />
+                  <input
+                    id="image-upload-mixed"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleFileSelect(e, 'images')}
+                    className="hidden"
+                  />
+                </div>
+              )}
+
               {uploadType === 'url' && (
                 <div>
                   <label className="block text-sm font-medium text-neutral-700 mb-2">Website URL</label>
@@ -539,8 +767,112 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                 </div>
               )}
 
+              {uploadType === 'images' && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs font-medium text-neutral-500 uppercase tracking-wide">
+                    <span>Step {imageUploadStep + 1} of 2</span>
+                    <span>{imageAssignments.length} image{imageAssignments.length > 1 ? 's' : ''}</span>
+                  </div>
+
+                  {imageAssignments.length === 0 ? (
+                    <div className="bg-white border border-neutral-200 rounded-lg p-3 text-sm text-neutral-500">
+                      Add at least one mockup image to continue.
+                    </div>
+                  ) : (
+                    <>
+                      {imageSummary.missingNames.length > 0 && (
+                        <div className="bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg text-xs">
+                          Add a page name for every image before continuing.
+                        </div>
+                      )}
+
+                      {imageSummary.duplicateKeys.size > 0 && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs">
+                          Each page can only have one image per viewport. Resolve duplicates to continue.
+                        </div>
+                      )}
+
+                      {imageUploadStep === 0 ? (
+                        <div className="space-y-3">
+                          <div className="bg-neutral-50 border border-neutral-200 rounded-lg px-3 py-2 text-xs text-neutral-500">
+                            Match each mockup to a page and viewport. Tip: use filenames like
+                            <span className="font-medium text-neutral-700"> homepage-desktop.png</span>.
+                          </div>
+                          <div className="space-y-3 max-h-64 overflow-auto pr-1">
+                            {imageAssignments.map((assignment) => (
+                              <div key={assignment.id} className="flex items-center gap-3 bg-white rounded-lg p-3 border border-neutral-200">
+                                <img
+                                  src={assignment.previewUrl}
+                                  alt={assignment.file.name}
+                                  className="w-12 h-12 rounded-md object-cover border border-neutral-200"
+                                />
+                                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  <input
+                                    type="text"
+                                    value={assignment.pageName}
+                                    onChange={(e) => updateImageAssignment(assignment.id, { pageName: e.target.value })}
+                                    className="input-field text-sm"
+                                    placeholder="Page name"
+                                    disabled={uploading}
+                                  />
+                                  <select
+                                    value={assignment.viewport}
+                                    onChange={(e) => updateImageAssignment(assignment.id, { viewport: e.target.value })}
+                                    className="input-field text-sm"
+                                    disabled={uploading}
+                                  >
+                                    {IMAGE_VIEWPORTS.map((viewportOption) => (
+                                      <option key={viewportOption.key} value={viewportOption.key}>
+                                        {viewportOption.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {imageSummary.pages.map((page) => (
+                            <div key={page.slug} className="bg-white rounded-lg p-3 border border-neutral-200">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-sm font-medium text-neutral-800">{page.name}</p>
+                                <span className="text-xs text-neutral-400">{Object.keys(page.variants).length} viewports</span>
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {IMAGE_VIEWPORTS.map((viewportOption) => {
+                                  const exists = Boolean(page.variants[viewportOption.key])
+                                  return (
+                                    <span
+                                      key={viewportOption.key}
+                                      className={`px-2 py-1 rounded-full text-xs ${
+                                        exists
+                                          ? 'bg-green-100 text-green-700'
+                                          : 'bg-neutral-100 text-neutral-400'
+                                      }`}
+                                    >
+                                      {viewportOption.label}
+                                    </span>
+                                  )
+                                })}
+                              </div>
+                              {IMAGE_VIEWPORTS.filter((viewportOption) => !page.variants[viewportOption.key]).length > 0 && (
+                                <p className="text-xs text-neutral-500 mt-2">
+                                  Missing viewports will fall back to the closest available size.
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* File Preview */}
-              {(zipFile || imageFiles.length > 0) && (
+              {uploadType !== 'images' && (zipFile || imageFiles.length > 0) && (
                 <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
                   <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-3">Files to upload</p>
                   {zipFile && (
@@ -555,24 +887,21 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                       <Check className="w-5 h-5 text-green-500" />
                     </div>
                   )}
-                  {imageFiles.length > 0 && (
-                    <div className="flex items-center gap-3 bg-white rounded-lg p-3 border border-neutral-200">
-                      <div className="w-10 h-10 bg-pink-100 rounded-lg flex items-center justify-center">
-                        <Image className="w-5 h-5 text-pink-600" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-neutral-800">{imageFiles.length} image{imageFiles.length > 1 ? 's' : ''}</p>
-                        <p className="text-xs text-neutral-500">Ready to upload</p>
-                      </div>
-                      <Check className="w-5 h-5 text-green-500" />
-                    </div>
-                  )}
                 </div>
               )}
             </div>
 
             {/* Modal Footer */}
             <div className="px-6 py-4 bg-neutral-50 border-t border-neutral-100 flex gap-3">
+              {uploadType === 'images' && imageUploadStep === 1 && (
+                <button
+                  onClick={() => setImageUploadStep(0)}
+                  className="btn-secondary flex-1"
+                  disabled={uploading}
+                >
+                  Back
+                </button>
+              )}
               <button
                 onClick={() => { setShowUploadModal(false); resetForm(); setUploadError(null) }}
                 className="btn-secondary flex-1"
@@ -582,8 +911,13 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
               </button>
               <button
                 onClick={handleCreateProject}
-                disabled={uploading || !formData.name || (uploadType === 'url' && !formData.url) ||
-                         (uploadType === 'zip' && !zipFile) || (uploadType === 'images' && imageFiles.length === 0)}
+                disabled={
+                  uploading ||
+                  !formData.name ||
+                  (uploadType === 'url' && !formData.url) ||
+                  (uploadType === 'zip' && !zipFile) ||
+                  (uploadType === 'images' && (imageAssignments.length === 0 || imageHasIssues))
+                }
                 className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {uploading ? (
@@ -592,7 +926,10 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                     Uploading...
                   </>
                 ) : (
-                  <>Create Project <ChevronRight className="w-4 h-4" /></>
+                  <>
+                    {uploadType === 'images' && imageUploadStep === 0 ? 'Next' : 'Create Project'}
+                    <ChevronRight className="w-4 h-4" />
+                  </>
                 )}
               </button>
             </div>
