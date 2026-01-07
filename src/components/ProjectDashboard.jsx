@@ -34,7 +34,7 @@ const IMAGE_MIME_TYPES = {
 const MAX_IMAGE_SIZE_MB = 4
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
 const COMPRESSION_QUALITY = 0.86
-const COMPRESSION_SCALES = [1, 0.92, 0.85, 0.78, 0.7]
+const COMPRESSION_SCALES = [1, 0.92, 0.85, 0.78, 0.7, 0.6, 0.5]
 
 const loadImage = (file) => {
   return new Promise((resolve, reject) => {
@@ -71,22 +71,37 @@ const compressImageFile = async (file, maxBytes) => {
         ? 'image/png'
         : 'image/jpeg'
 
-  for (const scale of COMPRESSION_SCALES) {
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(img.width * scale))
-    canvas.height = Math.max(1, Math.round(img.height * scale))
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+  const compressWith = async (type, quality, fillBackground = false) => {
+    for (const scale of COMPRESSION_SCALES) {
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(img.width * scale))
+      canvas.height = Math.max(1, Math.round(img.height * scale))
+      const ctx = canvas.getContext('2d')
+      if (fillBackground) {
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
 
-    const blob = await canvasToBlob(canvas, outputType, COMPRESSION_QUALITY)
-    if (!blob) continue
-    const nextFile = new File([blob], file.name, {
-      type: blob.type || outputType,
-      lastModified: Date.now(),
-    })
-    if (nextFile.size <= maxBytes) {
-      return nextFile
+      const blob = await canvasToBlob(canvas, type, quality)
+      if (!blob) continue
+      const nextFile = new File([blob], file.name, {
+        type: blob.type || type,
+        lastModified: Date.now(),
+      })
+      if (nextFile.size <= maxBytes) {
+        return nextFile
+      }
     }
+    return null
+  }
+
+  const primary = await compressWith(outputType, COMPRESSION_QUALITY)
+  if (primary) return primary
+
+  if (outputType === 'image/png') {
+    const jpegFallback = await compressWith('image/jpeg', 0.8, true)
+    if (jpegFallback) return jpegFallback
   }
 
   return file
@@ -500,7 +515,8 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
 
         const oversized = preparedAssignments.filter((assignment) => assignment.file.size > MAX_IMAGE_SIZE_BYTES)
         if (oversized.length > 0) {
-          setUploadError(`Some images exceed ${MAX_IMAGE_SIZE_MB}MB after optimisation.`)
+          const names = oversized.map((assignment) => assignment.file.name).join(', ')
+          setUploadError(`Some images exceed ${MAX_IMAGE_SIZE_MB}MB after optimisation: ${names}`)
           setUploading(false)
           setUploadProgress('')
           return
@@ -583,7 +599,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-40">
         <div className="mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <a href="/" className="flex items-center gap-3">
               <img
                 src="/annotate-by-opace-small.png"
                 alt="Annotate by Opace logo"
@@ -593,7 +609,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                 <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
                 <p className="text-xs text-neutral-500">The Visual Feedback &amp; Website Critique Tool</p>
               </div>
-            </div>
+            </a>
 
             <div className="flex items-center gap-3">
               <div className="relative">

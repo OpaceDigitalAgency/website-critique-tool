@@ -1,9 +1,12 @@
 import { getStore } from "@netlify/blobs";
 import { createHash } from "node:crypto";
 
-const API_VERSION = "1.0.0";
-const MAX_ASSET_COUNT = 200;
+const API_VERSION = "1.0.1";
+const MAX_ASSET_COUNT = 120;
 const MAX_ASSET_BYTES = 15 * 1024 * 1024;
+const MAX_TOTAL_TIME_MS = 8000;
+const PAGE_FETCH_TIMEOUT_MS = 6000;
+const ASSET_FETCH_TIMEOUT_MS = 3500;
 
 const MIME_TYPES = {
   css: "text/css",
@@ -172,6 +175,16 @@ const isAcceptableAsset = (ext, contentType) => {
   );
 };
 
+const fetchWithTimeout = async (url, timeoutMs, options = {}) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 export default async (req) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -205,13 +218,22 @@ export default async (req) => {
     const description = payload?.description || "";
 
     const requestUrl = normalizeInputUrl(inputUrl);
-    const pageResponse = await fetch(requestUrl, {
-      redirect: "follow",
-      headers: {
-        "User-Agent": "OpaceAnnotateBot/1.0",
-        "Accept": "text/html,application/xhtml+xml",
-      },
-    });
+    const startTime = Date.now();
+    let pageResponse;
+    try {
+      pageResponse = await fetchWithTimeout(requestUrl, PAGE_FETCH_TIMEOUT_MS, {
+        redirect: "follow",
+        headers: {
+          "User-Agent": "OpaceAnnotateBot/1.0",
+          "Accept": "text/html,application/xhtml+xml",
+        },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: "Timed out fetching the website URL." }), {
+        status: 408,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
 
     if (!pageResponse.ok) {
       return new Response(JSON.stringify({ error: `Failed to fetch URL (${pageResponse.status})` }), {
@@ -260,6 +282,9 @@ export default async (req) => {
     }
 
     while (queue.length > 0 && assetKeys.length < MAX_ASSET_COUNT) {
+      if (Date.now() - startTime > MAX_TOTAL_TIME_MS) {
+        break;
+      }
       const current = queue.shift();
       if (!current || seen.has(current)) continue;
       seen.add(current);
@@ -286,7 +311,14 @@ export default async (req) => {
         continue;
       }
 
-      const assetResponse = await fetch(assetUrl.toString(), { redirect: "follow" });
+      let assetResponse;
+      try {
+        assetResponse = await fetchWithTimeout(assetUrl.toString(), ASSET_FETCH_TIMEOUT_MS, {
+          redirect: "follow",
+        });
+      } catch (error) {
+        continue;
+      }
       if (!assetResponse.ok) {
         continue;
       }

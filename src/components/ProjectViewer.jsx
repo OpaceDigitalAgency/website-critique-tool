@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Save, Copy, Check, Link } from 'lucide-react'
+import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Check, Link, Undo2, GripVertical, Pencil } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.7.0'
+const COMPONENT_VERSION = '2.8.0'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -29,6 +29,16 @@ export default function ProjectViewer({ project, onBack }) {
   const [isDrawing, setIsDrawing] = useState(false)
   const [drawStart, setDrawStart] = useState(null)
   const [drawEnd, setDrawEnd] = useState(null)
+  // Undo history
+  const [commentHistory, setCommentHistory] = useState([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  // Edit mode
+  const [editingCommentId, setEditingCommentId] = useState(null)
+  const [editingText, setEditingText] = useState('')
+  // Drag mode
+  const [isDragging, setIsDragging] = useState(false)
+  const [draggedComment, setDraggedComment] = useState(null)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const overlayRef = useRef(null)
   const iframeRef = useRef(null)
   const saveTimeoutRef = useRef(null)
@@ -105,6 +115,35 @@ export default function ProjectViewer({ project, onBack }) {
       }
     }
   }, [comments, saveCommentsToCloud])
+
+  // Helper to update comments with history tracking
+  const updateCommentsWithHistory = useCallback((newComments) => {
+    // Add current state to history before making changes
+    setCommentHistory(prev => {
+      // Remove any future states if we're not at the end
+      const newHistory = prev.slice(0, historyIndex + 1)
+      // Add current state to history (limit to 50 entries)
+      newHistory.push(JSON.parse(JSON.stringify(comments)))
+      if (newHistory.length > 50) newHistory.shift()
+      return newHistory
+    })
+    setHistoryIndex(prev => Math.min(prev + 1, 49))
+    setComments(newComments)
+  }, [comments, historyIndex])
+
+  // Undo function
+  const handleUndo = useCallback(() => {
+    if (historyIndex < 0 || commentHistory.length === 0) return
+
+    const previousState = commentHistory[historyIndex]
+    if (previousState) {
+      setComments(previousState)
+      setHistoryIndex(prev => prev - 1)
+    }
+  }, [historyIndex, commentHistory])
+
+  // Check if undo is available
+  const canUndo = historyIndex >= 0 && commentHistory.length > 0
 
   const currentPageData = project.pages[currentPage]
   const isImageProject = project.type === 'images' || Boolean(currentPageData?.variants)
@@ -250,6 +289,61 @@ export default function ProjectViewer({ project, onBack }) {
     return { x, y, width, height }
   }
 
+  // Drag handlers for repositioning existing comments
+  const handleCommentDragStart = (e, comment) => {
+    e.stopPropagation()
+    e.preventDefault()
+
+    const rect = overlayRef.current.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+
+    // Calculate offset from the comment's position to the mouse position
+    setDragOffset({
+      x: mouseX - comment.x,
+      y: mouseY - comment.y
+    })
+    setDraggedComment(comment)
+    setIsDragging(true)
+  }
+
+  const handleDragMove = (e) => {
+    if (!isDragging || !draggedComment) return
+
+    const rect = overlayRef.current.getBoundingClientRect()
+    const newX = e.clientX - rect.left - dragOffset.x
+    const newY = e.clientY - rect.top - dragOffset.y
+
+    // Update the dragged comment position in real-time (without history)
+    const pageKey = currentPageData.relativePath || currentPageData.path
+    const pageComments = comments[pageKey] || []
+
+    setComments({
+      ...comments,
+      [pageKey]: pageComments.map(c => {
+        if (c.id === draggedComment.id) {
+          return { ...c, x: Math.max(0, newX), y: Math.max(0, newY) }
+        }
+        return c
+      })
+    })
+  }
+
+  const handleDragEnd = () => {
+    if (isDragging && draggedComment) {
+      // Save the final position to history
+      const pageKey = currentPageData.relativePath || currentPageData.path
+      const currentComment = (comments[pageKey] || []).find(c => c.id === draggedComment.id)
+      if (currentComment) {
+        // We already updated the position, just need to save to history
+        // The next change will create the history entry
+      }
+    }
+    setIsDragging(false)
+    setDraggedComment(null)
+    setDragOffset({ x: 0, y: 0 })
+  }
+
   const handleAddComment = () => {
     if (!commentText.trim() || !tempPinPosition) return
 
@@ -268,7 +362,7 @@ export default function ProjectViewer({ project, onBack }) {
       timestamp: new Date().toISOString()
     }
 
-    setComments({
+    updateCommentsWithHistory({
       ...comments,
       [pageKey]: [...pageComments, newComment]
     })
@@ -278,15 +372,51 @@ export default function ProjectViewer({ project, onBack }) {
     setCommentText('')
   }
 
-  const handleDeleteComment = (commentId) => {
-    const pageKey = currentPageData.relativePath || currentPageData.path
+  const handleDeleteComment = (commentId, pageKeyOverride = null) => {
+    const pageKey = pageKeyOverride || currentPageData.relativePath || currentPageData.path
     const pageComments = comments[pageKey] || []
-    
-    setComments({
+
+    updateCommentsWithHistory({
       ...comments,
       [pageKey]: pageComments.filter(c => c.id !== commentId)
     })
     setActiveComment(null)
+  }
+
+  // Edit comment handler
+  const handleEditComment = (commentId, newText, pageKeyOverride = null) => {
+    if (!newText.trim()) return
+
+    const pageKey = pageKeyOverride || currentPageData.relativePath || currentPageData.path
+    const pageComments = comments[pageKey] || []
+
+    updateCommentsWithHistory({
+      ...comments,
+      [pageKey]: pageComments.map(c =>
+        c.id === commentId ? { ...c, text: newText } : c
+      )
+    })
+    setEditingCommentId(null)
+    setEditingText('')
+  }
+
+  // Move comment handler (for drag/drop)
+  const handleMoveComment = (commentId, newX, newY, newWidth = null, newHeight = null, pageKeyOverride = null) => {
+    const pageKey = pageKeyOverride || currentPageData.relativePath || currentPageData.path
+    const pageComments = comments[pageKey] || []
+
+    updateCommentsWithHistory({
+      ...comments,
+      [pageKey]: pageComments.map(c => {
+        if (c.id === commentId) {
+          const updated = { ...c, x: newX, y: newY }
+          if (newWidth !== null) updated.width = newWidth
+          if (newHeight !== null) updated.height = newHeight
+          return updated
+        }
+        return c
+      })
+    })
   }
 
   const getPageComments = () => {
@@ -318,92 +448,198 @@ export default function ProjectViewer({ project, onBack }) {
   const generatePDF = async () => {
     const pdf = new jsPDF('p', 'mm', 'a4')
     const pageWidth = pdf.internal.pageSize.getWidth()
-    const margin = 20
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const margin = 15
     const contentWidth = pageWidth - (margin * 2)
 
     // Title page
     pdf.setFontSize(24)
     pdf.setFont(undefined, 'bold')
-    pdf.text(project.name, margin, 40)
+    pdf.text(project.name, margin, 35)
 
     pdf.setFontSize(14)
     pdf.setFont(undefined, 'normal')
-    pdf.text(`Client: ${project.clientName || 'N/A'}`, margin, 55)
+    pdf.text(`Client: ${project.clientName || 'N/A'}`, margin, 48)
 
     pdf.setFontSize(12)
-    pdf.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, margin, 68)
+    pdf.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, margin, 58)
 
     const totalComments = Object.values(comments).flat().length
-    pdf.text(`Total Comments: ${totalComments}`, margin, 81)
+    pdf.text(`Total Comments: ${totalComments}`, margin, 68)
 
     // Add a separator line
     pdf.setDrawColor(200)
-    pdf.line(margin, 90, pageWidth - margin, 90)
+    pdf.line(margin, 75, pageWidth - margin, 75)
 
-    let yPosition = 105
-    let pageIndex = 0
+    let yPosition = 85
 
-    for (const [pagePath, pageComments] of Object.entries(comments)) {
+    // Process each page with comments
+    for (const page of project.pages) {
+      const pageKey = page.relativePath || page.path
+      const pageComments = comments[pageKey] || []
+
       if (pageComments.length === 0) continue
 
-      // Check if we need a new page
-      if (yPosition > 250) {
-        pdf.addPage()
-        yPosition = 25
-      }
+      // Start new page for each annotated page
+      pdf.addPage()
+      yPosition = margin
 
-      const pageName = pagePath.split('/').pop()
+      const pageName = pageKey.split('/').pop() || page.name || 'Page'
 
       // Page header
-      pdf.setFontSize(14)
+      pdf.setFontSize(16)
       pdf.setFont(undefined, 'bold')
       pdf.setTextColor(60, 60, 60)
-      pdf.text(`Page: ${pageName}`, margin, yPosition)
+      pdf.text(`Page: ${pageName}`, margin, yPosition + 5)
       pdf.setTextColor(0)
-      yPosition += 12
+      yPosition += 15
+
+      // Try to capture a screenshot of the page with annotations
+      let screenshotAdded = false
+
+      // For image projects, use the image directly
+      if (isImageProject && page.variants) {
+        const variant = page.variants.desktop || page.variants.tablet || page.variants.mobile
+        if (variant?.url) {
+          try {
+            // Create a canvas with the image and draw annotations on it
+            const img = new Image()
+            img.crossOrigin = 'anonymous'
+
+            await new Promise((resolve, reject) => {
+              img.onload = resolve
+              img.onerror = reject
+              img.src = variant.url
+            })
+
+            // Create canvas to draw image with annotations
+            const canvas = document.createElement('canvas')
+            const ctx = canvas.getContext('2d')
+
+            // Scale down if image is too large
+            const maxWidth = 800
+            const scale = img.width > maxWidth ? maxWidth / img.width : 1
+            canvas.width = img.width * scale
+            canvas.height = img.height * scale
+
+            // Draw the image
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+            // Draw annotations on top
+            pageComments.forEach((comment, idx) => {
+              const scaledX = comment.x * scale
+              const scaledY = comment.y * scale
+
+              if (comment.isRectangle && comment.width && comment.height) {
+                // Draw rectangle
+                ctx.strokeStyle = '#3b82f6'
+                ctx.lineWidth = 3
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'
+                ctx.beginPath()
+                ctx.rect(scaledX, scaledY, comment.width * scale, comment.height * scale)
+                ctx.fill()
+                ctx.stroke()
+
+                // Draw number badge
+                ctx.fillStyle = '#3b82f6'
+                ctx.beginPath()
+                ctx.arc(scaledX - 8, scaledY - 8, 14, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.fillStyle = 'white'
+                ctx.font = 'bold 12px Arial'
+                ctx.textAlign = 'center'
+                ctx.textBaseline = 'middle'
+                ctx.fillText(String(idx + 1), scaledX - 8, scaledY - 8)
+              } else {
+                // Draw pin marker
+                ctx.fillStyle = '#3b82f6'
+                ctx.beginPath()
+                ctx.arc(scaledX, scaledY, 16, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.fillStyle = 'white'
+                ctx.font = 'bold 12px Arial'
+                ctx.textAlign = 'center'
+                ctx.textBaseline = 'middle'
+                ctx.fillText(String(idx + 1), scaledX, scaledY)
+              }
+            })
+
+            // Add annotated image to PDF
+            const imgData = canvas.toDataURL('image/jpeg', 0.8)
+            const imgAspect = canvas.height / canvas.width
+            const pdfImgWidth = contentWidth
+            const pdfImgHeight = pdfImgWidth * imgAspect
+
+            // Check if image fits on current page
+            const maxImgHeight = pageHeight - yPosition - 30
+            const finalImgHeight = Math.min(pdfImgHeight, maxImgHeight)
+            const finalImgWidth = finalImgHeight / imgAspect
+
+            pdf.addImage(imgData, 'JPEG', margin, yPosition, finalImgWidth, finalImgHeight)
+            yPosition += finalImgHeight + 10
+            screenshotAdded = true
+          } catch (err) {
+            console.error('Failed to add image to PDF:', err)
+          }
+        }
+      }
+
+      // Add comments list
+      if (!screenshotAdded) {
+        // Add a note that screenshot couldn't be captured
+        pdf.setFontSize(10)
+        pdf.setTextColor(120, 120, 120)
+        pdf.text('[Screenshot not available for HTML pages - see annotations below]', margin, yPosition)
+        pdf.setTextColor(0)
+        yPosition += 10
+      }
+
+      // Add comment details
+      pdf.setFontSize(12)
+      pdf.setFont(undefined, 'bold')
+      pdf.text('Feedback Comments:', margin, yPosition)
+      yPosition += 8
 
       for (let i = 0; i < pageComments.length; i++) {
         const comment = pageComments[i]
 
-        // Check if we need a new page before each comment
-        if (yPosition > 260) {
+        // Check if we need a new page
+        if (yPosition > pageHeight - 40) {
           pdf.addPage()
-          yPosition = 25
+          yPosition = margin
         }
 
         // Comment number with background
-        pdf.setFillColor(59, 130, 246) // Blue
-        pdf.circle(margin + 4, yPosition - 2, 4, 'F')
+        pdf.setFillColor(59, 130, 246)
+        pdf.circle(margin + 4, yPosition + 1, 4, 'F')
         pdf.setFontSize(9)
         pdf.setTextColor(255, 255, 255)
-        pdf.text(`${i + 1}`, margin + 2.5, yPosition)
+        pdf.text(`${i + 1}`, margin + 2.5, yPosition + 2.5)
         pdf.setTextColor(0)
 
         // Comment text
         pdf.setFontSize(11)
         pdf.setFont(undefined, 'normal')
         const lines = pdf.splitTextToSize(comment.text, contentWidth - 15)
-        pdf.text(lines, margin + 12, yPosition)
+        pdf.text(lines, margin + 12, yPosition + 3)
 
-        // Calculate height used by text (approx 5mm per line)
         const textHeight = lines.length * 5
-        yPosition += textHeight + 3
+        yPosition += textHeight + 5
 
-        // Meta information
-        pdf.setFontSize(8)
-        pdf.setTextColor(120, 120, 120)
-        let metaText = `Viewport: ${comment.viewport} | Position: (${Math.round(comment.x)}, ${Math.round(comment.y)})`
-        if (comment.width && comment.height) {
-          metaText += ` | Area: ${Math.round(comment.width)}x${Math.round(comment.height)}`
+        // Location description
+        pdf.setFontSize(9)
+        pdf.setTextColor(100, 100, 100)
+        let locationDesc = ''
+        if (comment.isRectangle && comment.width && comment.height) {
+          locationDesc = `📍 Highlighted area at position (${Math.round(comment.x)}, ${Math.round(comment.y)}) - ${Math.round(comment.width)}×${Math.round(comment.height)} pixels`
+        } else {
+          locationDesc = `📍 Point marker at position (${Math.round(comment.x)}, ${Math.round(comment.y)})`
         }
-        pdf.text(metaText, margin + 12, yPosition)
+        pdf.text(locationDesc, margin + 12, yPosition)
         pdf.setTextColor(0)
 
         yPosition += 10
       }
-
-      yPosition += 8 // Extra spacing between pages
-      pageIndex++
     }
 
     // If no comments at all, add a message
@@ -594,6 +830,17 @@ export default function ProjectViewer({ project, onBack }) {
                 </span>
               )}
 
+              {canUndo && (
+                <button
+                  onClick={handleUndo}
+                  className="flex items-center gap-2 px-3 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
+                  title="Undo last action"
+                >
+                  <Undo2 className="w-4 h-4" />
+                  Undo
+                </button>
+              )}
+
               <button
                 onClick={copyShareUrl}
                 className="flex items-center gap-2 px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
@@ -751,11 +998,20 @@ export default function ProjectViewer({ project, onBack }) {
 
               <div
                 ref={overlayRef}
-                className={`comment-overlay ${commentMode ? 'active' : ''}`}
+                className={`comment-overlay ${commentMode ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
                 onMouseDown={handleOverlayMouseDown}
-                onMouseMove={handleOverlayMouseMove}
-                onMouseUp={handleOverlayMouseUp}
-                onMouseLeave={handleOverlayMouseLeave}
+                onMouseMove={(e) => {
+                  handleOverlayMouseMove(e)
+                  handleDragMove(e)
+                }}
+                onMouseUp={(e) => {
+                  handleOverlayMouseUp(e)
+                  handleDragEnd()
+                }}
+                onMouseLeave={(e) => {
+                  handleOverlayMouseLeave()
+                  handleDragEnd()
+                }}
               >
                 {/* Render existing comments - both pins and rectangles */}
                 {getPageComments().map((comment, index) => (
@@ -763,7 +1019,7 @@ export default function ProjectViewer({ project, onBack }) {
                     // Rectangle annotation
                     <div
                       key={comment.id}
-                      className={`comment-rect ${activeComment === comment.id ? 'active' : ''}`}
+                      className={`comment-rect ${activeComment === comment.id ? 'active' : ''} ${draggedComment?.id === comment.id ? 'dragging' : ''}`}
                       style={{
                         left: `${comment.x}px`,
                         top: `${comment.y}px`,
@@ -771,22 +1027,34 @@ export default function ProjectViewer({ project, onBack }) {
                         height: `${comment.height}px`
                       }}
                       onClick={(e) => {
-                        e.stopPropagation()
-                        setActiveComment(activeComment === comment.id ? null : comment.id)
+                        if (!isDragging) {
+                          e.stopPropagation()
+                          setActiveComment(activeComment === comment.id ? null : comment.id)
+                        }
                       }}
                     >
-                      <span className="comment-rect-number">{index + 1}</span>
+                      <span
+                        className="comment-rect-number draggable"
+                        onMouseDown={(e) => handleCommentDragStart(e, comment)}
+                        title="Drag to reposition"
+                      >
+                        {index + 1}
+                      </span>
                     </div>
                   ) : (
                     // Point pin annotation
                     <div
                       key={comment.id}
-                      className={`comment-pin ${activeComment === comment.id ? 'active' : ''}`}
+                      className={`comment-pin ${activeComment === comment.id ? 'active' : ''} ${draggedComment?.id === comment.id ? 'dragging' : ''}`}
                       style={{ left: `${comment.x}px`, top: `${comment.y}px` }}
                       onClick={(e) => {
-                        e.stopPropagation()
-                        setActiveComment(activeComment === comment.id ? null : comment.id)
+                        if (!isDragging) {
+                          e.stopPropagation()
+                          setActiveComment(activeComment === comment.id ? null : comment.id)
+                        }
                       }}
+                      onMouseDown={(e) => handleCommentDragStart(e, comment)}
+                      title="Drag to reposition"
                     >
                       {index + 1}
                     </div>
@@ -918,17 +1186,60 @@ export default function ProjectViewer({ project, onBack }) {
                     >
                       <div className="flex items-start justify-between mb-2">
                         <span className="font-bold text-blue-600">#{index + 1}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteComment(comment.id)
-                          }}
-                          className="text-red-500 hover:text-red-700 text-xs"
-                        >
-                          Delete
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingCommentId(comment.id)
+                              setEditingText(comment.text)
+                            }}
+                            className="text-blue-500 hover:text-blue-700 text-xs flex items-center gap-1"
+                            title="Edit comment"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteComment(comment.id)
+                            }}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-sm mb-2">{comment.text}</p>
+                      {editingCommentId === comment.id ? (
+                        <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                          <textarea
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            className="w-full border rounded px-2 py-1 text-sm"
+                            rows="3"
+                            autoFocus
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleEditComment(comment.id, editingText)}
+                              className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingCommentId(null)
+                                setEditingText('')
+                              }}
+                              className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm mb-2">{comment.text}</p>
+                      )}
                       <div className="text-xs text-gray-500">
                         <div>Viewport: {comment.viewport}</div>
                         <div>Position: ({Math.round(comment.x)}, {Math.round(comment.y)}){comment.width ? ` - Size: ${Math.round(comment.width)}x${Math.round(comment.height)}` : ''}</div>
