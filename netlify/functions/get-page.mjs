@@ -3,6 +3,8 @@ import { getStore } from "@netlify/blobs";
 // API version for cache busting
 const API_VERSION = "2.1.1";
 
+const encodePath = (value) => value.split('/').map(encodeURIComponent).join('/');
+
 export default async (req, context) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -71,7 +73,7 @@ export default async (req, context) => {
     for (const assetKey of assetKeys) {
       const assetPath = assetKey.replace(`${projectId}/`, '');
       const fileName = assetPath.split('/').pop();
-      const assetUrl = `${baseUrl}/api/asset/${projectId}/${encodeURIComponent(assetPath)}?v=${API_VERSION}`;
+      const assetUrl = `${baseUrl}/api/asset/${projectId}/${encodePath(assetPath)}?v=${API_VERSION}`;
 
       assetMap.set(assetPath, assetUrl);
       assetMap.set(fileName, assetUrl);
@@ -89,7 +91,7 @@ export default async (req, context) => {
       // Check if it's an HTML page first - if so, return the page URL
       if (cleanPath.endsWith('.html') || cleanPath.endsWith('.htm')) {
         const fullPath = baseDir ? `${baseDir}/${cleanPath}`.replace(/\/+/g, '/') : cleanPath;
-        return `${baseUrl}/api/page/${projectId}/${encodeURIComponent(fullPath)}${suffix}`;
+        return `${baseUrl}/api/page/${projectId}/${encodePath(fullPath)}${suffix}`;
       }
 
       // For non-HTML assets, check the asset map
@@ -163,4 +165,3 @@ export default async (req, context) => {
 export const config = {
   path: "/api/page/:projectId/*",
 };
-

@@ -3,6 +3,8 @@ import { getStore } from "@netlify/blobs";
 // API version for cache busting
 const API_VERSION = "2.1.1";
 
+const encodePath = (value) => value.split('/').map(encodeURIComponent).join('/');
+
 export default async (req, context) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -51,7 +53,7 @@ export default async (req, context) => {
       for (const assetKey of assetKeys) {
         const assetPath = assetKey.replace(`${projectId}/`, '');
         const fileName = assetPath.split('/').pop();
-        const assetUrl = `${baseUrl}/api/asset/${projectId}/${encodeURIComponent(assetPath)}?v=${API_VERSION}`;
+        const assetUrl = `${baseUrl}/api/asset/${projectId}/${encodePath(assetPath)}?v=${API_VERSION}`;
 
         // Store multiple path variations for matching
         assetMap.set(assetPath, assetUrl);

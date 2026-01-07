@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.1.2'
+const COMPONENT_VERSION = '2.2.0'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -16,7 +16,7 @@ const VIEWPORTS = {
 
 export default function ProjectViewer({ project, onBack }) {
   const [currentPage, setCurrentPage] = useState(0)
-  const [viewport, setViewport] = useState('desktop')
+  const [viewport, setViewport] = useState('full')
   const [commentMode, setCommentMode] = useState(false)
   const [comments, setComments] = useState({})
   const [activeComment, setActiveComment] = useState(null)
@@ -103,6 +103,57 @@ export default function ProjectViewer({ project, onBack }) {
 
   const currentPageData = project.pages[currentPage]
   const isImageProject = project.type === 'images' || Boolean(currentPageData?.variants)
+
+  // Auto-resize iframe to fit content
+  useEffect(() => {
+    if (isImageProject) return
+
+    const handleMessage = (event) => {
+      if (event.data && event.data.type === 'resize' && event.data.height) {
+        if (iframeRef.current) {
+          iframeRef.current.style.height = event.data.height + 'px'
+        }
+      }
+    }
+
+    const resizeIframe = () => {
+      try {
+        const iframe = iframeRef.current
+        if (iframe && iframe.contentWindow && iframe.contentWindow.document) {
+          const body = iframe.contentWindow.document.body
+          const html = iframe.contentWindow.document.documentElement
+          const height = Math.max(
+            body.scrollHeight,
+            body.offsetHeight,
+            html.clientHeight,
+            html.scrollHeight,
+            html.offsetHeight
+          )
+          iframe.style.height = height + 'px'
+        }
+      } catch (e) {
+        // Cross-origin or other error - ignore
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+
+    const iframe = iframeRef.current
+    if (iframe) {
+      iframe.addEventListener('load', resizeIframe)
+      // Also try to resize after a short delay
+      setTimeout(resizeIframe, 100)
+      setTimeout(resizeIframe, 500)
+      setTimeout(resizeIframe, 1000)
+    }
+
+    return () => {
+      window.removeEventListener('message', handleMessage)
+      if (iframe) {
+        iframe.removeEventListener('load', resizeIframe)
+      }
+    }
+  }, [currentPage, isImageProject])
 
   useEffect(() => {
     if (!isImageProject || !currentPageData?.variants) return
@@ -228,6 +279,42 @@ export default function ProjectViewer({ project, onBack }) {
 
   // Returns { type: 'url' | 'srcdoc', content: string }
   const getIframeContent = () => {
+    const resizeScript = `
+      <script>
+        (function() {
+          function notifyResize() {
+            try {
+              const height = Math.max(
+                document.body.scrollHeight,
+                document.body.offsetHeight,
+                document.documentElement.clientHeight,
+                document.documentElement.scrollHeight,
+                document.documentElement.offsetHeight
+              );
+              window.parent.postMessage({ type: 'resize', height: height }, '*');
+            } catch(e) {}
+          }
+
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', notifyResize);
+          } else {
+            notifyResize();
+          }
+
+          window.addEventListener('load', notifyResize);
+          setTimeout(notifyResize, 100);
+          setTimeout(notifyResize, 500);
+          setTimeout(notifyResize, 1000);
+
+          // Watch for dynamic content changes
+          if (window.ResizeObserver) {
+            const observer = new ResizeObserver(notifyResize);
+            observer.observe(document.body);
+          }
+        })();
+      </script>
+    `;
+
     if (project.type === 'url') {
       return { type: 'url', content: currentPageData.path }
     } else if (project.assetKeys && project.assetKeys.length > 0) {
@@ -250,10 +337,26 @@ export default function ProjectViewer({ project, onBack }) {
         )
       }
 
+      // Inject resize script before closing body tag
+      if (htmlContent.includes('</body>')) {
+        htmlContent = htmlContent.replace('</body>', resizeScript + '</body>');
+      } else {
+        htmlContent += resizeScript;
+      }
+
       return { type: 'srcdoc', content: htmlContent }
     } else {
       // Fallback - use content as-is
-      return { type: 'srcdoc', content: currentPageData.content || '' }
+      let htmlContent = currentPageData.content || '';
+
+      // Inject resize script
+      if (htmlContent.includes('</body>')) {
+        htmlContent = htmlContent.replace('</body>', resizeScript + '</body>');
+      } else {
+        htmlContent += resizeScript;
+      }
+
+      return { type: 'srcdoc', content: htmlContent }
     }
   }
 
@@ -410,15 +513,15 @@ export default function ProjectViewer({ project, onBack }) {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 flex justify-center items-start overflow-auto bg-neutral-100 p-4">
+        <div className="flex-1 flex justify-center items-start overflow-auto bg-neutral-100">
           <div
-            className="bg-white shadow-2xl relative"
+            className="bg-white relative w-full"
             style={{
-              width: viewportWidth === '100%' ? '100%' : `${viewportWidth}px`,
+              maxWidth: viewportWidth === '100%' ? '100%' : `${viewportWidth}px`,
               minHeight: '100%'
             }}
           >
-            <div className="relative" style={isImageProject ? {} : { height: '800px' }}>
+            <div className="relative" style={isImageProject ? {} : { minHeight: '100vh' }}>
               {isImageProject ? (
                 (() => {
                   const variant = getImageVariantForViewport()
