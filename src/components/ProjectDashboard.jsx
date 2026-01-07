@@ -31,6 +31,9 @@ const IMAGE_MIME_TYPES = {
   webp: 'image/webp',
 }
 
+const MAX_IMAGE_SIZE_MB = 4
+const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
+
 const titleCase = (value) => {
   return value
     .split(' ')
@@ -213,6 +216,9 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
       const next = [...prev]
 
       images.forEach((entry) => {
+        if (entry.file.size > MAX_IMAGE_SIZE_BYTES) {
+          return
+        }
         const viewport = viewportOverride || entry.viewport
         const id = `${entry.sourceKey}-${entry.file.lastModified}-${viewport}`
         if (existing.has(id)) return
@@ -390,6 +396,11 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     if (uploadType === 'images' && imageUploadStep === 0) {
       if (imageAssignments.length === 0) {
         setUploadError('Add at least one image to continue.')
+        return
+      }
+      const oversizeImages = imageAssignments.filter((assignment) => assignment.file.size > MAX_IMAGE_SIZE_BYTES)
+      if (oversizeImages.length > 0) {
+        setUploadError(`Some images exceed ${MAX_IMAGE_SIZE_MB}MB. Please optimise them before uploading.`)
         return
       }
       if (imageHasIssues) {
@@ -759,9 +770,9 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
       {/* Modern Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 animate-scale-in overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 animate-scale-in overflow-hidden max-h-[90vh] flex flex-col">
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between shrink-0">
               <h2 className="text-lg font-semibold text-neutral-800">
                 {uploadType === 'url' ? 'Add Website URL' :
                  uploadType === 'images' ? 'Upload Images' : 'Create Project'}
@@ -775,7 +786,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
             </div>
 
             {/* Modal Body */}
-            <div className="px-6 py-5 space-y-5">
+            <div className="px-6 py-5 space-y-5 overflow-y-auto flex-1">
               {uploadError && (
                 <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-start gap-3">
                   <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -826,6 +837,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                     <p>Upload each page as an image. Add desktop versions first, then optional tablet/mobile mockups.</p>
                     <p>Use clear filenames like <span className="font-medium text-neutral-700">homepage-desktop.png</span> so we can auto-match viewports.</p>
                     <p>Tip: You can also drop a ZIP of images and we will unpack it for you.</p>
+                    <p>Images must be under {MAX_IMAGE_SIZE_MB}MB each.</p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -973,6 +985,11 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                                     ))}
                                   </select>
                                 </div>
+                                {assignment.file.size > MAX_IMAGE_SIZE_BYTES && (
+                                  <span className="text-xs text-red-600">
+                                    Over {MAX_IMAGE_SIZE_MB}MB
+                                  </span>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -1037,7 +1054,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-4 bg-neutral-50 border-t border-neutral-100 flex gap-3">
+            <div className="px-6 py-4 bg-neutral-50 border-t border-neutral-100 flex gap-3 shrink-0">
               {uploadType === 'images' && imageUploadStep === 1 && (
                 <button
                   onClick={() => setImageUploadStep(0)}
