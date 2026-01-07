@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Check, Link, Undo2, GripVertical, Pencil } from 'lucide-react'
-import html2canvas from 'html2canvas'
+import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Check, Link, Undo2, Pencil } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.8.1'
+const COMPONENT_VERSION = '2.9.0'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -290,7 +289,7 @@ export default function ProjectViewer({ project, onBack }) {
   }
 
   // Drag handlers for repositioning existing comments
-  const handleCommentDragStart = (e, comment) => {
+  const handleCommentDragStart = useCallback((e, comment) => {
     e.stopPropagation()
     e.preventDefault()
 
@@ -299,16 +298,18 @@ export default function ProjectViewer({ project, onBack }) {
     const mouseY = e.clientY - rect.top
 
     // Calculate offset from the comment's position to the mouse position
-    setDragOffset({
+    const offset = {
       x: mouseX - comment.x,
       y: mouseY - comment.y
-    })
+    }
+
+    setDragOffset(offset)
     setDraggedComment(comment)
     setIsDragging(true)
-  }
+  }, [])
 
-  const handleDragMove = (e) => {
-    if (!isDragging || !draggedComment) return
+  const handleDragMove = useCallback((e) => {
+    if (!isDragging || !draggedComment || !overlayRef.current) return
 
     const rect = overlayRef.current.getBoundingClientRect()
     const newX = e.clientX - rect.left - dragOffset.x
@@ -327,9 +328,9 @@ export default function ProjectViewer({ project, onBack }) {
         return c
       })
     })
-  }
+  }, [isDragging, draggedComment, dragOffset, comments, currentPageData])
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     if (isDragging && draggedComment) {
       // Save the final position to history
       const pageKey = currentPageData.relativePath || currentPageData.path
@@ -342,7 +343,28 @@ export default function ProjectViewer({ project, onBack }) {
     setIsDragging(false)
     setDraggedComment(null)
     setDragOffset({ x: 0, y: 0 })
-  }
+  }, [isDragging, draggedComment, comments, currentPageData])
+
+  // Add document-level event listeners for dragging
+  useEffect(() => {
+    if (isDragging) {
+      const handleMouseMove = (e) => {
+        handleDragMove(e)
+      }
+
+      const handleMouseUp = (e) => {
+        handleDragEnd()
+      }
+
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+  }, [isDragging, handleDragMove, handleDragEnd])
 
   const handleAddComment = () => {
     if (!commentText.trim() || !tempPinPosition) return
@@ -584,90 +606,19 @@ export default function ProjectViewer({ project, onBack }) {
         }
       }
 
-      // For HTML projects, try to capture using html2canvas
-      if (!screenshotAdded && !isImageProject && iframeRef.current) {
-        try {
-          // Try to capture the iframe container with overlay
-          const iframeContainer = iframeRef.current.parentElement
-          if (iframeContainer) {
-            const canvas = await html2canvas(iframeContainer, {
-              useCORS: true,
-              allowTaint: true,
-              scale: 0.5, // Lower scale for smaller file size
-              logging: false,
-              ignoreElements: (element) => {
-                // Ignore the comment input modal if visible
-                return element.classList?.contains('fixed')
-              }
-            })
-
-            // Draw annotations on top of captured canvas
-            const ctx = canvas.getContext('2d')
-            const canvasScale = canvas.width / iframeContainer.offsetWidth
-
-            pageComments.forEach((comment, idx) => {
-              const scaledX = comment.x * canvasScale
-              const scaledY = comment.y * canvasScale
-
-              if (comment.isRectangle && comment.width && comment.height) {
-                ctx.strokeStyle = '#3b82f6'
-                ctx.lineWidth = 3 * canvasScale
-                ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'
-                ctx.beginPath()
-                ctx.rect(scaledX, scaledY, comment.width * canvasScale, comment.height * canvasScale)
-                ctx.fill()
-                ctx.stroke()
-
-                const badgeSize = 14 * canvasScale
-                ctx.fillStyle = '#3b82f6'
-                ctx.beginPath()
-                ctx.arc(scaledX - 8 * canvasScale, scaledY - 8 * canvasScale, badgeSize, 0, Math.PI * 2)
-                ctx.fill()
-                ctx.fillStyle = 'white'
-                ctx.font = `bold ${12 * canvasScale}px Arial`
-                ctx.textAlign = 'center'
-                ctx.textBaseline = 'middle'
-                ctx.fillText(String(idx + 1), scaledX - 8 * canvasScale, scaledY - 8 * canvasScale)
-              } else {
-                const pinSize = 16 * canvasScale
-                ctx.fillStyle = '#3b82f6'
-                ctx.beginPath()
-                ctx.arc(scaledX, scaledY, pinSize, 0, Math.PI * 2)
-                ctx.fill()
-                ctx.fillStyle = 'white'
-                ctx.font = `bold ${12 * canvasScale}px Arial`
-                ctx.textAlign = 'center'
-                ctx.textBaseline = 'middle'
-                ctx.fillText(String(idx + 1), scaledX, scaledY)
-              }
-            })
-
-            const imgData = canvas.toDataURL('image/jpeg', 0.7)
-            const imgAspect = canvas.height / canvas.width
-            const pdfImgWidth = contentWidth
-            const pdfImgHeight = pdfImgWidth * imgAspect
-
-            const maxImgHeight = pageHeight - yPosition - 30
-            const finalImgHeight = Math.min(pdfImgHeight, maxImgHeight)
-            const finalImgWidth = finalImgHeight / imgAspect
-
-            pdf.addImage(imgData, 'JPEG', margin, yPosition, finalImgWidth, finalImgHeight)
-            yPosition += finalImgHeight + 10
-            screenshotAdded = true
-          }
-        } catch (err) {
-          console.error('Failed to capture HTML page:', err)
-        }
-      }
+      // For HTML projects, screenshots are not available due to browser security restrictions
+      // We'll just show the comment list with detailed location information
 
       // Add comments list
       if (!screenshotAdded) {
-        // Add a note that screenshot couldn't be captured
+        // Add a note that screenshot couldn't be captured for HTML pages
         pdf.setFontSize(10)
         pdf.setTextColor(120, 120, 120)
-        pdf.text('[Screenshot not available - see annotations below]', margin, yPosition)
+        pdf.text('Note: Screenshots are only available for image-based projects.', margin, yPosition)
+        yPosition += 5
+        pdf.text('For HTML pages, please refer to the position coordinates below.', margin, yPosition)
         pdf.setTextColor(0)
-        yPosition += 10
+        yPosition += 12
       }
 
       // Add comment details
@@ -1100,7 +1051,8 @@ export default function ProjectViewer({ project, onBack }) {
                         left: `${comment.x}px`,
                         top: `${comment.y}px`,
                         width: `${comment.width}px`,
-                        height: `${comment.height}px`
+                        height: `${comment.height}px`,
+                        cursor: 'grab'
                       }}
                       onClick={(e) => {
                         if (!isDragging) {
@@ -1108,12 +1060,10 @@ export default function ProjectViewer({ project, onBack }) {
                           setActiveComment(activeComment === comment.id ? null : comment.id)
                         }
                       }}
+                      onMouseDown={(e) => handleCommentDragStart(e, comment)}
+                      title="Drag to reposition"
                     >
-                      <span
-                        className="comment-rect-number draggable"
-                        onMouseDown={(e) => handleCommentDragStart(e, comment)}
-                        title="Drag to reposition"
-                      >
+                      <span className="comment-rect-number">
                         {index + 1}
                       </span>
                     </div>

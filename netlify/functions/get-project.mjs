@@ -4,6 +4,15 @@ import { getStore } from "@netlify/blobs";
 const API_VERSION = "2.1.1";
 
 const encodePath = (value) => value.split('/').map(encodeURIComponent).join('/');
+const VIEWPORTS = new Set(["desktop", "tablet", "mobile"]);
+
+const titleCase = (value) => {
+  return value
+    .split(/[-\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};
 
 export default async (req, context) => {
   const corsHeaders = {
@@ -138,6 +147,48 @@ export default async (req, context) => {
 
     // Get the base URL from the request
     const baseUrl = new URL(req.url).origin;
+
+    if (projectData.type === "images") {
+      const pageNameBySlug = new Map();
+      if (projectData.pages?.length) {
+        projectData.pages.forEach((page) => {
+          const slug = page.path?.split("/").pop();
+          if (slug && page.name) {
+            pageNameBySlug.set(slug, page.name);
+          }
+        });
+      }
+
+      const { blobs } = await assetsStore.list({ prefix: projectId });
+      const pagesMap = new Map();
+
+      blobs.forEach((blob) => {
+        const assetPath = blob.key.replace(`${projectId}/`, "");
+        const match = assetPath.match(/^images\/([^/]+)\/([^/.]+)\.[a-z0-9]+$/i);
+        if (!match) return;
+        const slug = match[1];
+        const viewport = match[2].toLowerCase();
+        if (!VIEWPORTS.has(viewport)) return;
+
+        const pagePath = `images/${slug}`;
+        if (!pagesMap.has(pagePath)) {
+          pagesMap.set(pagePath, {
+            name: pageNameBySlug.get(slug) || titleCase(slug),
+            path: pagePath,
+            variants: {},
+          });
+        }
+
+        const fileName = assetPath.split("/").pop();
+        pagesMap.get(pagePath).variants[viewport] = {
+          path: assetPath,
+          fileName: fileName,
+        };
+      });
+
+      projectData.pages = Array.from(pagesMap.values());
+      projectData.assetKeys = blobs.map((blob) => blob.key);
+    }
 
     // Fetch HTML content for each page from assets store (skip for image projects)
     if (projectData.type !== "images" && projectData.pages && projectData.pages.length > 0) {
