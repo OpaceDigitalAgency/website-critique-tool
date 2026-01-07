@@ -60,10 +60,14 @@ export default async (req, context) => {
       const body = await req.json();
       const action = body.action;
       const pageKey = body.pageKey;
-      const viewport = body.viewport;
+      const viewports = Array.isArray(body.viewports)
+        ? body.viewports.filter(Boolean)
+        : body.viewport
+          ? [body.viewport]
+          : [];
 
-      if (!action || !pageKey || !viewport) {
-        return new Response(JSON.stringify({ error: "Action, pageKey, and viewport are required" }), {
+      if (!action || !pageKey || viewports.length === 0) {
+        return new Response(JSON.stringify({ error: "Action, pageKey, and viewports are required" }), {
           status: 400,
           headers: { "Content-Type": "application/json", ...corsHeaders },
         });
@@ -78,30 +82,37 @@ export default async (req, context) => {
       if (action === "approve") {
         const approvalId = body.approvalId || generateId();
         if (!approvals[pageKey]) approvals[pageKey] = {};
-        approvals[pageKey][viewport] = {
-          status: "approved",
-          approvalId,
-          approvedAt: timestamp,
-          approvedBy: body.approvedBy || body.approverName || null,
-          commentCount: Number.isFinite(body.commentCount) ? body.commentCount : null,
-        };
+        const commentCount = Number.isFinite(body.commentCount) ? body.commentCount : null;
+
+        viewports.forEach((viewport) => {
+          approvals[pageKey][viewport] = {
+            status: "approved",
+            approvalId,
+            approvedAt: timestamp,
+            approvedBy: body.approvedBy || body.approverName || null,
+            commentCount,
+          };
+        });
 
         history.push({
           id: generateId(),
           action: "approved",
           timestamp,
           pageKey,
-          viewport,
+          viewport: viewports[0],
+          viewports,
           actor,
           approvalId,
-          commentCount: Number.isFinite(body.commentCount) ? body.commentCount : null,
+          commentCount,
         });
       } else if (action === "clear") {
-        if (approvals[pageKey] && approvals[pageKey][viewport]) {
-          delete approvals[pageKey][viewport];
-          if (Object.keys(approvals[pageKey]).length === 0) {
-            delete approvals[pageKey];
+        viewports.forEach((viewport) => {
+          if (approvals[pageKey] && approvals[pageKey][viewport]) {
+            delete approvals[pageKey][viewport];
           }
+        });
+        if (approvals[pageKey] && Object.keys(approvals[pageKey]).length === 0) {
+          delete approvals[pageKey];
         }
 
         history.push({
@@ -109,7 +120,8 @@ export default async (req, context) => {
           action: "cleared",
           timestamp,
           pageKey,
-          viewport,
+          viewport: viewports[0],
+          viewports,
           actor,
           reason: body.reason || "updated",
         });

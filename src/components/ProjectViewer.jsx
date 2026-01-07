@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.9.2'
+const COMPONENT_VERSION = '2.9.3'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -226,7 +226,13 @@ export default function ProjectViewer({ project, onBack }) {
     return date.toLocaleString()
   }
 
-  const normalizeApprovalViewport = (value) => (value === 'full' ? 'desktop' : value)
+  const formatViewportList = (viewports = []) => {
+    const labels = viewports.map((key) => APPROVAL_LABELS[key] || key)
+    if (labels.length === 0) return 'All views'
+    if (labels.length === 1) return labels[0]
+    if (labels.length === 2) return `${labels[0]} + ${labels[1]}`
+    return `${labels.slice(0, -1).join(', ')} + ${labels[labels.length - 1]}`
+  }
 
   const getApprovalViewportsForPage = (page) => {
     if (isImageProject) {
@@ -236,31 +242,28 @@ export default function ProjectViewer({ project, onBack }) {
     return APPROVAL_VIEWPORTS
   }
 
-  const approvalViewportKey = normalizeApprovalViewport(viewport)
   const approvalViewportsForCurrentPage = getApprovalViewportsForPage(currentPageData)
-  const currentApproval = viewport === 'full' ? null : approvals[currentPageKey]?.[approvalViewportKey]
-  const canApproveCurrentView = viewport !== 'full'
-    && approvalViewportsForCurrentPage.includes(approvalViewportKey)
-    && !currentApproval
+  const getPageApprovalStatus = (page) => {
+    const pageKey = page?.relativePath || page?.path || 'default'
+    const viewports = getApprovalViewportsForPage(page)
+    const approvalsForPage = approvals[pageKey] || {}
+    const approvedCount = viewports.filter((key) => approvalsForPage[key]).length
+    const approved = viewports.length > 0 && approvedCount === viewports.length
+    const latestApproval = viewports
+      .map((key) => approvalsForPage[key])
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.approvedAt) - new Date(a.approvedAt))[0] || null
+    return { approved, approvedCount, total: viewports.length, latestApproval, viewports }
+  }
+
+  const currentPageApproval = getPageApprovalStatus(currentPageData)
 
   const approvalProgress = useMemo(() => {
     if (!project?.pages) return { total: 0, approved: 0 }
-    return project.pages.reduce((acc, page) => {
-      const pageKey = page?.relativePath || page?.path || 'default'
-      const viewports = getApprovalViewportsForPage(page)
-      const approvedCount = viewports.filter((key) => approvals[pageKey]?.[key]).length
-      acc.total += viewports.length
-      acc.approved += approvedCount
-      return acc
-    }, { total: 0, approved: 0 })
+    const total = project.pages.length
+    const approved = project.pages.filter((page) => getPageApprovalStatus(page).approved).length
+    return { total, approved }
   }, [approvals, project?.pages, isImageProject])
-
-  const getPageApprovalSummary = (page) => {
-    const pageKey = page?.relativePath || page?.path || 'default'
-    const viewports = getApprovalViewportsForPage(page)
-    const approvedCount = viewports.filter((key) => approvals[pageKey]?.[key]).length
-    return { approved: approvedCount, total: viewports.length }
-  }
 
   const pageApprovalHistory = useMemo(() => {
     if (!approvalHistory.length) return []
@@ -278,31 +281,33 @@ export default function ProjectViewer({ project, onBack }) {
     }
   }, [])
 
-  const getViewportCommentCount = useCallback((pageKey, viewportKey) => {
-    const pageComments = comments[pageKey] || []
-    const normalized = normalizeApprovalViewport(viewportKey)
-    return pageComments.filter((comment) => normalizeApprovalViewport(comment.viewport) === normalized).length
+  const getPageCommentCount = useCallback((pageKey) => {
+    return (comments[pageKey] || []).length
   }, [comments])
 
-  const requestApproval = (pageKey, viewportKey) => {
+  const requestApproval = (pageKey, viewports) => {
     setApprovalTarget({
       pageKey,
-      viewport: viewportKey,
+      viewports,
       pageName: currentPageData?.name || 'Page'
     })
     setShowApprovalModal(true)
   }
 
-  const clearApprovalForViewport = useCallback(async (pageKey, viewportKey, reason) => {
-    if (!project?.id || !pageKey || !viewportKey) return
-    const existing = approvalsRef.current?.[pageKey]?.[viewportKey]
-    if (!existing) return
+  const clearApprovalsForPage = useCallback(async (pageKey, viewports, reason) => {
+    if (!project?.id || !pageKey) return
+    const viewportsToClear = viewports?.length
+      ? viewports
+      : Object.keys(approvalsRef.current?.[pageKey] || {})
+    if (viewportsToClear.length === 0) return
 
     setApprovals((prev) => {
       const next = { ...prev }
       if (next[pageKey]) {
         const nextPage = { ...next[pageKey] }
-        delete nextPage[viewportKey]
+        viewportsToClear.forEach((viewportKey) => {
+          delete nextPage[viewportKey]
+        })
         if (Object.keys(nextPage).length === 0) {
           delete next[pageKey]
         } else {
@@ -312,18 +317,17 @@ export default function ProjectViewer({ project, onBack }) {
       return next
     })
 
-    const noticeLabel = APPROVAL_LABELS[viewportKey] || viewportKey
     if (approvalNoticeTimeoutRef.current) {
       clearTimeout(approvalNoticeTimeoutRef.current)
     }
-    setApprovalNotice(`Approval cleared for ${noticeLabel} view due to changes.`)
+    setApprovalNotice('Approval cleared for this page due to changes.')
     approvalNoticeTimeoutRef.current = setTimeout(() => setApprovalNotice(null), 4000)
 
     try {
       const result = await api.saveApproval(project.id, {
         action: 'clear',
         pageKey,
-        viewport: viewportKey,
+        viewports: viewportsToClear,
         reason: reason || 'updated',
         actor: 'system'
       })
@@ -341,11 +345,11 @@ export default function ProjectViewer({ project, onBack }) {
 
     setApprovalSaving(true)
     try {
-      const commentCount = getViewportCommentCount(approvalTarget.pageKey, approvalTarget.viewport)
+      const commentCount = getPageCommentCount(approvalTarget.pageKey)
       const result = await api.saveApproval(project.id, {
         action: 'approve',
         pageKey: approvalTarget.pageKey,
-        viewport: approvalTarget.viewport,
+        viewports: approvalTarget.viewports || approvalViewportsForCurrentPage,
         approverName: name,
         commentCount
       })
@@ -532,7 +536,8 @@ export default function ProjectViewer({ project, onBack }) {
       const pageComments = commentsRef.current[pageKey] || []
       const latest = pageComments.find(comment => comment.id === dragged.id)
       if (latest && (latest.x !== dragged.x || latest.y !== dragged.y || latest.width !== dragged.width || latest.height !== dragged.height)) {
-        clearApprovalForViewport(pageKey, normalizeApprovalViewport(latest.viewport), 'comment-moved')
+        const viewports = getApprovalViewportsForPage(currentPageDataRef.current)
+        clearApprovalsForPage(pageKey, viewports, 'comment-moved')
       }
     }
 
@@ -541,7 +546,7 @@ export default function ProjectViewer({ project, onBack }) {
     setIsDragging(false)
     setDraggedComment(null)
     setDragOffset({ x: 0, y: 0 })
-  }, [clearApprovalForViewport])
+  }, [clearApprovalsForPage])
 
   // Drag handlers for repositioning existing comments
   const handleCommentPointerDown = useCallback((e, comment) => {
@@ -704,7 +709,7 @@ export default function ProjectViewer({ project, onBack }) {
       ...comments,
       [pageKey]: [...pageComments, newComment]
     })
-    clearApprovalForViewport(pageKey, normalizeApprovalViewport(viewport), 'comment-added')
+    clearApprovalsForPage(pageKey, approvalViewportsForCurrentPage, 'comment-added')
 
     setShowCommentInput(false)
     setTempPinPosition(null)
@@ -722,7 +727,7 @@ export default function ProjectViewer({ project, onBack }) {
     })
     setActiveComment(null)
     if (commentToDelete?.viewport) {
-      clearApprovalForViewport(pageKey, normalizeApprovalViewport(commentToDelete.viewport), 'comment-deleted')
+      clearApprovalsForPage(pageKey, approvalViewportsForCurrentPage, 'comment-deleted')
     }
   }
 
@@ -743,7 +748,7 @@ export default function ProjectViewer({ project, onBack }) {
     setEditingCommentId(null)
     setEditingText('')
     if (commentToEdit?.viewport) {
-      clearApprovalForViewport(pageKey, normalizeApprovalViewport(commentToEdit.viewport), 'comment-edited')
+      clearApprovalsForPage(pageKey, approvalViewportsForCurrentPage, 'comment-edited')
     }
   }
 
@@ -766,7 +771,7 @@ export default function ProjectViewer({ project, onBack }) {
       })
     })
     if (commentToMove?.viewport) {
-      clearApprovalForViewport(pageKey, normalizeApprovalViewport(commentToMove.viewport), 'comment-moved')
+      clearApprovalsForPage(pageKey, approvalViewportsForCurrentPage, 'comment-moved')
     }
   }
 
@@ -873,31 +878,39 @@ export default function ProjectViewer({ project, onBack }) {
             return
           }
 
+          // Get the actual document dimensions for proper scaling
+          const docWidth = iframeDocument.documentElement.scrollWidth || 1200
+          const docHeight = iframeDocument.documentElement.scrollHeight || 800
+
           // Capture with html2canvas
           const canvas = await html2canvas(iframeDocument.body, {
             useCORS: true,
             allowTaint: true,
             scale: 1,
             logging: false,
-            windowWidth: iframeDocument.documentElement.scrollWidth || 1200,
-            windowHeight: iframeDocument.documentElement.scrollHeight || 800
+            windowWidth: docWidth,
+            windowHeight: docHeight
           })
 
           // Draw annotations on top
           const ctx = canvas.getContext('2d')
-          const scaleX = canvas.width / 1200
-          const scaleY = canvas.height / 800
+
+          // Comments are stored as pixel positions relative to the iframe width (1200px in our temp iframe)
+          // The canvas captures the full document at that width
+          // Scale based on canvas width vs temp iframe width (should be ~1 if matching)
+          // Use the SAME scale for both X and Y to maintain correct positions
+          const scale = canvas.width / 1200
 
           pageComments.forEach((comment, idx) => {
-            const scaledX = comment.x * scaleX
-            const scaledY = comment.y * scaleY
+            const scaledX = comment.x * scale
+            const scaledY = comment.y * scale
 
             if (comment.isRectangle && comment.width && comment.height) {
               ctx.strokeStyle = '#3b82f6'
               ctx.lineWidth = 3
               ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'
               ctx.beginPath()
-              ctx.rect(scaledX, scaledY, comment.width * scaleX, comment.height * scaleY)
+              ctx.rect(scaledX, scaledY, comment.width * scale, comment.height * scale)
               ctx.fill()
               ctx.stroke()
 
@@ -1487,9 +1500,7 @@ export default function ProjectViewer({ project, onBack }) {
 
             <div className="flex-1 flex flex-wrap gap-2 overflow-x-auto">
               {project.pages.map((page, index) => {
-                const { approved, total } = getPageApprovalSummary(page)
-                const isApproved = total > 0 && approved === total
-                const progressLabel = total > 0 && !isApproved ? `${approved}/${total}` : null
+                const { approved } = getPageApprovalStatus(page)
                 return (
                   <button
                     key={index}
@@ -1501,13 +1512,8 @@ export default function ProjectViewer({ project, onBack }) {
                     }`}
                   >
                     <span>{page.name}</span>
-                    {isApproved && (
+                    {approved && (
                       <Check className={`w-3 h-3 ${currentPage === index ? 'text-emerald-200' : 'text-emerald-600'}`} />
-                    )}
-                    {!isApproved && progressLabel && (
-                      <span className={`text-[10px] font-semibold ${currentPage === index ? 'text-neutral-200' : 'text-neutral-600'}`}>
-                        {progressLabel}
-                      </span>
                     )}
                   </button>
                 )
