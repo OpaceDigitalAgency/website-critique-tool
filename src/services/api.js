@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.1.2';
+const API_VERSION = '2.1.3';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
