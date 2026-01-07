@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.9.1'
+const COMPONENT_VERSION = '2.9.2'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -570,6 +570,159 @@ export default function ProjectViewer({ project, onBack }) {
     return Object.values(comments).flat().length
   }
 
+  // Helper to get iframe content for a specific page (for PDF generation)
+  const getIframeContentForPage = (page) => {
+    const pagePath = page.relativePath || page.path || ''
+
+    if (project.type === 'url') {
+      return { type: 'url', content: page.path }
+    } else if (project.assetKeys && project.assetKeys.length > 0) {
+      // Cloud-based project - use the page URL endpoint
+      return { type: 'url', content: api.getPageUrl(project.id, pagePath) }
+    } else if (project.assets) {
+      // Legacy local assets (base64 encoded) - use srcDoc
+      let htmlContent = page.content || ''
+
+      for (const [assetPath, assetData] of Object.entries(project.assets)) {
+        const fileName = assetPath.split('/').pop()
+        const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+        htmlContent = htmlContent.replace(
+          new RegExp(`(src|href)=["']([^"']*${escapedFileName})["']`, 'gi'),
+          `$1="${assetData}"`
+        )
+      }
+
+      return { type: 'srcdoc', content: htmlContent }
+    } else {
+      // Fallback - use content as-is
+      return { type: 'srcdoc', content: page.content || '' }
+    }
+  }
+
+  // Helper to capture HTML page in a temporary iframe
+  const captureHtmlPageToCanvas = async (page, pageComments) => {
+    return new Promise(async (resolve) => {
+      const iframeData = getIframeContentForPage(page)
+
+      // Create a hidden container
+      const container = document.createElement('div')
+      container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 1200px; height: 800px; overflow: hidden;'
+      document.body.appendChild(container)
+
+      // Create temporary iframe
+      const tempIframe = document.createElement('iframe')
+      tempIframe.style.cssText = 'width: 1200px; height: 800px; border: none;'
+      tempIframe.sandbox = 'allow-same-origin allow-scripts'
+
+      container.appendChild(tempIframe)
+
+      const cleanup = () => {
+        try {
+          document.body.removeChild(container)
+        } catch (e) {
+          // Container may have already been removed
+        }
+      }
+
+      // Set up load handler
+      const onLoad = async () => {
+        try {
+          // Wait a bit for content to render
+          await new Promise(r => setTimeout(r, 500))
+
+          let iframeDocument = null
+          try {
+            iframeDocument = tempIframe.contentDocument || tempIframe.contentWindow?.document
+          } catch (e) {
+            console.log('Cannot access temp iframe document:', e)
+            cleanup()
+            resolve(null)
+            return
+          }
+
+          if (!iframeDocument || !iframeDocument.body) {
+            cleanup()
+            resolve(null)
+            return
+          }
+
+          // Capture with html2canvas
+          const canvas = await html2canvas(iframeDocument.body, {
+            useCORS: true,
+            allowTaint: true,
+            scale: 1,
+            logging: false,
+            windowWidth: iframeDocument.documentElement.scrollWidth || 1200,
+            windowHeight: iframeDocument.documentElement.scrollHeight || 800
+          })
+
+          // Draw annotations on top
+          const ctx = canvas.getContext('2d')
+          const scaleX = canvas.width / 1200
+          const scaleY = canvas.height / 800
+
+          pageComments.forEach((comment, idx) => {
+            const scaledX = comment.x * scaleX
+            const scaledY = comment.y * scaleY
+
+            if (comment.isRectangle && comment.width && comment.height) {
+              ctx.strokeStyle = '#3b82f6'
+              ctx.lineWidth = 3
+              ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'
+              ctx.beginPath()
+              ctx.rect(scaledX, scaledY, comment.width * scaleX, comment.height * scaleY)
+              ctx.fill()
+              ctx.stroke()
+
+              ctx.fillStyle = '#3b82f6'
+              ctx.beginPath()
+              ctx.arc(scaledX - 8, scaledY - 8, 14, 0, Math.PI * 2)
+              ctx.fill()
+              ctx.fillStyle = 'white'
+              ctx.font = 'bold 12px Arial'
+              ctx.textAlign = 'center'
+              ctx.textBaseline = 'middle'
+              ctx.fillText(String(idx + 1), scaledX - 8, scaledY - 8)
+            } else {
+              ctx.fillStyle = '#3b82f6'
+              ctx.beginPath()
+              ctx.arc(scaledX, scaledY, 16, 0, Math.PI * 2)
+              ctx.fill()
+              ctx.fillStyle = 'white'
+              ctx.font = 'bold 14px Arial'
+              ctx.textAlign = 'center'
+              ctx.textBaseline = 'middle'
+              ctx.fillText(String(idx + 1), scaledX, scaledY)
+            }
+          })
+
+          cleanup()
+          resolve(canvas)
+        } catch (err) {
+          console.error('Failed to capture temp iframe:', err)
+          cleanup()
+          resolve(null)
+        }
+      }
+
+      tempIframe.addEventListener('load', onLoad)
+
+      // Set a timeout in case loading hangs
+      setTimeout(() => {
+        cleanup()
+        resolve(null)
+      }, 10000)
+
+      // Load the content
+      if (iframeData.type === 'url') {
+        tempIframe.src = iframeData.content
+      } else {
+        tempIframe.srcdoc = iframeData.content
+      }
+    })
+  }
+
   const generatePDF = async () => {
     const pdf = new jsPDF('p', 'mm', 'a4')
     const pageWidth = pdf.internal.pageSize.getWidth()
@@ -709,76 +862,12 @@ export default function ProjectViewer({ project, onBack }) {
         }
       }
 
-      // For HTML projects, try to capture the iframe content
-      if (!screenshotAdded && !isImageProject && iframeRef.current) {
+      // For HTML projects, capture each page in a temporary iframe
+      if (!screenshotAdded && !isImageProject) {
         try {
-          const iframe = iframeRef.current
-          let iframeDocument = null
+          const canvas = await captureHtmlPageToCanvas(page, pageComments)
 
-          // Try to access iframe document (works for srcdoc and same-origin iframes)
-          try {
-            iframeDocument = iframe.contentDocument || iframe.contentWindow?.document
-          } catch (e) {
-            console.log('Cannot access iframe document (cross-origin):', e)
-          }
-
-          if (iframeDocument && iframeDocument.body) {
-            // We can access the iframe content! Capture it with html2canvas
-            const canvas = await html2canvas(iframeDocument.body, {
-              useCORS: true,
-              allowTaint: true,
-              scale: 1,
-              logging: false,
-              windowWidth: iframeDocument.documentElement.scrollWidth,
-              windowHeight: iframeDocument.documentElement.scrollHeight
-            })
-
-            // Draw annotations on top
-            const ctx = canvas.getContext('2d')
-
-            // Calculate scale - annotations are positioned relative to iframe
-            const scaleX = canvas.width / iframe.offsetWidth
-            const scaleY = canvas.height / iframe.offsetHeight
-
-            pageComments.forEach((comment, idx) => {
-              const scaledX = comment.x * scaleX
-              const scaledY = comment.y * scaleY
-
-              if (comment.isRectangle && comment.width && comment.height) {
-                // Draw rectangle
-                ctx.strokeStyle = '#3b82f6'
-                ctx.lineWidth = 3
-                ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'
-                ctx.beginPath()
-                ctx.rect(scaledX, scaledY, comment.width * scaleX, comment.height * scaleY)
-                ctx.fill()
-                ctx.stroke()
-
-                // Draw number badge
-                ctx.fillStyle = '#3b82f6'
-                ctx.beginPath()
-                ctx.arc(scaledX - 8, scaledY - 8, 14, 0, Math.PI * 2)
-                ctx.fill()
-                ctx.fillStyle = 'white'
-                ctx.font = 'bold 12px Arial'
-                ctx.textAlign = 'center'
-                ctx.textBaseline = 'middle'
-                ctx.fillText(String(idx + 1), scaledX - 8, scaledY - 8)
-              } else {
-                // Draw pin marker
-                ctx.fillStyle = '#3b82f6'
-                ctx.beginPath()
-                ctx.arc(scaledX, scaledY, 16, 0, Math.PI * 2)
-                ctx.fill()
-                ctx.fillStyle = 'white'
-                ctx.font = 'bold 14px Arial'
-                ctx.textAlign = 'center'
-                ctx.textBaseline = 'middle'
-                ctx.fillText(String(idx + 1), scaledX, scaledY)
-              }
-            })
-
-            // Add to PDF
+          if (canvas) {
             const imgData = canvas.toDataURL('image/jpeg', 0.85)
             const imgAspect = canvas.height / canvas.width
             const pdfImgWidth = contentWidth
