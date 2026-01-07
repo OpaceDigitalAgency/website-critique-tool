@@ -33,6 +33,64 @@ const IMAGE_MIME_TYPES = {
 
 const MAX_IMAGE_SIZE_MB = 4
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
+const COMPRESSION_QUALITY = 0.86
+const COMPRESSION_SCALES = [1, 0.92, 0.85, 0.78, 0.7]
+
+const loadImage = (file) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(img)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Failed to load image'))
+    }
+    img.src = url
+  })
+}
+
+const canvasToBlob = (canvas, type, quality) => {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality)
+  })
+}
+
+const compressImageFile = async (file, maxBytes) => {
+  if (!file.type.startsWith('image/')) return file
+  if (file.size <= maxBytes) return file
+
+  const img = await loadImage(file)
+  const outputType = file.type === 'image/webp'
+    ? 'image/webp'
+    : file.type === 'image/jpeg'
+      ? 'image/jpeg'
+      : file.type === 'image/png'
+        ? 'image/png'
+        : 'image/jpeg'
+
+  for (const scale of COMPRESSION_SCALES) {
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(img.width * scale))
+    canvas.height = Math.max(1, Math.round(img.height * scale))
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+    const blob = await canvasToBlob(canvas, outputType, COMPRESSION_QUALITY)
+    if (!blob) continue
+    const nextFile = new File([blob], file.name, {
+      type: blob.type || outputType,
+      lastModified: Date.now(),
+    })
+    if (nextFile.size <= maxBytes) {
+      return nextFile
+    }
+  }
+
+  return file
+}
 
 const titleCase = (value) => {
   return value
@@ -398,11 +456,6 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
         setUploadError('Add at least one image to continue.')
         return
       }
-      const oversizeImages = imageAssignments.filter((assignment) => assignment.file.size > MAX_IMAGE_SIZE_BYTES)
-      if (oversizeImages.length > 0) {
-        setUploadError(`Some images exceed ${MAX_IMAGE_SIZE_MB}MB. Please optimise them before uploading.`)
-        return
-      }
       if (imageHasIssues) {
         setUploadError('Resolve page name or viewport conflicts before continuing.')
         return
@@ -435,7 +488,26 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
         setShowUploadModal(false)
         resetForm()
       } else if (uploadType === 'images' && imageAssignments.length > 0) {
-        const result = await api.uploadImages(imageAssignments, {
+        setUploadProgress('Optimising images...')
+        const preparedAssignments = []
+        for (const assignment of imageAssignments) {
+          const compressed = await compressImageFile(assignment.file, MAX_IMAGE_SIZE_BYTES)
+          preparedAssignments.push({
+            ...assignment,
+            file: compressed,
+          })
+        }
+
+        const oversized = preparedAssignments.filter((assignment) => assignment.file.size > MAX_IMAGE_SIZE_BYTES)
+        if (oversized.length > 0) {
+          setUploadError(`Some images exceed ${MAX_IMAGE_SIZE_MB}MB after optimisation.`)
+          setUploading(false)
+          setUploadProgress('')
+          return
+        }
+
+        setUploadProgress('Uploading images...')
+        const result = await api.uploadImages(preparedAssignments, {
           name: formData.name || 'Untitled Project',
           clientName: formData.clientName,
           description: formData.description,
@@ -837,7 +909,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                     <p>Upload each page as an image. Add desktop versions first, then optional tablet/mobile mockups.</p>
                     <p>Use clear filenames like <span className="font-medium text-neutral-700">homepage-desktop.png</span> so we can auto-match viewports.</p>
                     <p>Tip: You can also drop a ZIP of images and we will unpack it for you.</p>
-                    <p>Images must be under {MAX_IMAGE_SIZE_MB}MB each.</p>
+                    <p>Images over {MAX_IMAGE_SIZE_MB}MB will be lightly compressed before upload.</p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -986,8 +1058,8 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                                   </select>
                                 </div>
                                 {assignment.file.size > MAX_IMAGE_SIZE_BYTES && (
-                                  <span className="text-xs text-red-600">
-                                    Over {MAX_IMAGE_SIZE_MB}MB
+                                  <span className="text-xs text-amber-600">
+                                    Will compress
                                   </span>
                                 )}
                               </div>
