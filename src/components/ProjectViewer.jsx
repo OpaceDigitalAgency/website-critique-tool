@@ -817,9 +817,7 @@ export default function ProjectViewer({ project, onBack }) {
   const getIframeContentForPage = (page) => {
     const pagePath = page.relativePath || page.path || ''
 
-    if (project.type === 'url') {
-      return { type: 'url', content: page.path }
-    } else if (project.assetKeys && project.assetKeys.length > 0) {
+    if (project.assetKeys && project.assetKeys.length > 0) {
       // Cloud-based project - use the page URL endpoint
       return { type: 'url', content: api.getPageUrl(project.id, pagePath) }
     } else if (project.assets) {
