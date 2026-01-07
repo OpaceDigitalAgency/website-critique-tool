@@ -418,6 +418,23 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
   useEffect(() => {
     if (isImageProject) return
 
+    const ensureIframeStyles = (doc) => {
+      if (!doc) return
+      const existing = doc.getElementById('opace-iframe-style')
+      if (!existing) {
+        const style = doc.createElement('style')
+        style.id = 'opace-iframe-style'
+        style.textContent = 'html, body { overflow: hidden !important; }'
+        doc.head?.appendChild(style)
+      }
+      if (doc.documentElement) {
+        doc.documentElement.style.overflow = 'hidden'
+      }
+      if (doc.body) {
+        doc.body.style.overflow = 'hidden'
+      }
+    }
+
     const handleMessage = (event) => {
       if (event.data && event.data.type === 'resize' && event.data.height) {
         if (iframeRef.current) {
@@ -432,6 +449,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
         if (iframe && iframe.contentWindow && iframe.contentWindow.document) {
           const body = iframe.contentWindow.document.body
           const html = iframe.contentWindow.document.documentElement
+          ensureIframeStyles(iframe.contentWindow.document)
           const height = Math.max(
             body.scrollHeight,
             body.offsetHeight,
@@ -1247,6 +1265,9 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
   // Returns { type: 'url' | 'srcdoc', content: string }
   const getIframeContent = () => {
     const resizeScript = `
+      <style>
+        html, body { overflow: hidden !important; }
+      </style>
       <script>
         (function() {
           function notifyResize() {
