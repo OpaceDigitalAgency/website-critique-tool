@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.3.0'
+const COMPONENT_VERSION = '2.4.0'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -402,7 +402,7 @@ export default function ProjectViewer({ project, onBack }) {
   })()
 
   return (
-    <div className="h-screen flex flex-col bg-neutral-50">
+    <div className="min-h-screen flex flex-col bg-neutral-50">
       <div className="bg-white border-b border-neutral-200 sticky top-0 z-40">
         <div className="max-w-full mx-auto px-6 py-4">
           <div className="flex items-center justify-between mb-3">
@@ -513,8 +513,8 @@ export default function ProjectViewer({ project, onBack }) {
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 flex justify-center items-start overflow-auto bg-neutral-100">
+      <div className="flex-1 flex">
+        <div className="flex-1 flex justify-center items-start bg-neutral-100">
           <div
             className="bg-white relative w-full"
             style={{
