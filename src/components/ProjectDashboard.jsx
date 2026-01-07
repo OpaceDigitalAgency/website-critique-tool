@@ -289,7 +289,10 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
       const next = [...prev]
 
       images.forEach((entry) => {
-        if (entry.file.size > MAX_IMAGE_SIZE_BYTES) {
+        // Don't reject large images here - they will be compressed before upload
+        // Only reject if they're absurdly large (e.g. over 50MB)
+        const MAX_RAW_IMAGE_SIZE = 50 * 1024 * 1024
+        if (entry.file.size > MAX_RAW_IMAGE_SIZE) {
           return
         }
         const viewport = viewportOverride || entry.viewport

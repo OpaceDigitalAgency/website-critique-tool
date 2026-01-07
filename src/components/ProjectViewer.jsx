@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.9.3'
+const COMPONENT_VERSION = '2.9.4'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -53,6 +53,8 @@ export default function ProjectViewer({ project, onBack }) {
   const [approverName, setApproverName] = useState('')
   const [showApprovalModal, setShowApprovalModal] = useState(false)
   const [approvalTarget, setApprovalTarget] = useState(null)
+  const [imageLoading, setImageLoading] = useState(false)
+  const [loadedImageUrl, setLoadedImageUrl] = useState(null)
   const overlayRef = useRef(null)
   const iframeRef = useRef(null)
   const saveTimeoutRef = useRef(null)
@@ -69,7 +71,14 @@ export default function ProjectViewer({ project, onBack }) {
   useEffect(() => {
     setCurrentPage(0)
     setViewport('desktop')
+    setImageLoading(true)
+    setLoadedImageUrl(null)
   }, [project?.id])
+
+  // Reset image loading state when viewport or page changes
+  useEffect(() => {
+    setImageLoading(true)
+  }, [viewport, currentPage])
 
   // Load comments from cloud API
   useEffect(() => {
@@ -296,9 +305,12 @@ export default function ProjectViewer({ project, onBack }) {
 
   const clearApprovalsForPage = useCallback(async (pageKey, viewports, reason) => {
     if (!project?.id || !pageKey) return
+    const existingApprovals = approvalsRef.current?.[pageKey] || {}
     const viewportsToClear = viewports?.length
       ? viewports
-      : Object.keys(approvalsRef.current?.[pageKey] || {})
+      : Object.keys(existingApprovals)
+    const hasExisting = viewportsToClear.some((viewportKey) => existingApprovals[viewportKey])
+    if (!hasExisting) return
     if (viewportsToClear.length === 0) return
 
     setApprovals((prev) => {
@@ -1323,10 +1335,10 @@ export default function ProjectViewer({ project, onBack }) {
     ? Math.round((approvalProgress.approved / approvalProgress.total) * 100)
     : 0
   const approvalTargetLabel = approvalTarget
-    ? (APPROVAL_LABELS[approvalTarget.viewport] || approvalTarget.viewport)
+    ? formatViewportList(approvalTarget.viewports || approvalViewportsForCurrentPage)
     : ''
   const approvalTargetCommentCount = approvalTarget
-    ? getViewportCommentCount(approvalTarget.pageKey, approvalTarget.viewport)
+    ? getPageCommentCount(approvalTarget.pageKey)
     : 0
 
   return (
@@ -1432,25 +1444,21 @@ export default function ProjectViewer({ project, onBack }) {
               </button>
 
               <button
-                onClick={() => requestApproval(currentPageKey, approvalViewportKey)}
-                disabled={!canApproveCurrentView}
+                onClick={() => requestApproval(currentPageKey, approvalViewportsForCurrentPage)}
+                disabled={currentPageApproval.approved}
                 title={
-                  currentApproval
-                    ? `Approved ${formatTimestamp(currentApproval.approvedAt)}`
-                    : viewport === 'full'
-                      ? 'Switch to Desktop/Tablet/Mobile to approve'
-                      : 'Approve this view'
+                  currentPageApproval.approved
+                    ? `Approved ${formatTimestamp(currentPageApproval.latestApproval?.approvedAt)}`
+                    : `Approve this page (${formatViewportList(approvalViewportsForCurrentPage)})`
                 }
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
-                  currentApproval
+                  currentPageApproval.approved
                     ? 'bg-emerald-100 text-emerald-700'
-                    : canApproveCurrentView
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                      : 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700'
                 }`}
               >
                 <Check className="w-4 h-4" />
-                {currentApproval ? 'Approved' : 'Approve View'}
+                {currentPageApproval.approved ? 'Approved' : 'Approve Page'}
               </button>
 
               <button
@@ -1546,13 +1554,32 @@ export default function ProjectViewer({ project, onBack }) {
                     )
                   }
                   const imageUrl = api.getAssetUrl(project.id, variant.path)
+                  // Use key to force remount when URL changes, preventing flash of old image
+                  const imageKey = `${project.id}-${variant.path}`
                   return (
-                    <img
-                      src={imageUrl}
-                      alt={currentPageData.name}
-                      className="w-full h-auto block"
-                      style={{ maxWidth: '100%' }}
-                    />
+                    <div className="relative">
+                      {imageLoading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-neutral-100 z-10">
+                          <div className="w-8 h-8 border-3 border-neutral-300 border-t-indigo-600 rounded-full animate-spin"></div>
+                        </div>
+                      )}
+                      <img
+                        key={imageKey}
+                        src={imageUrl}
+                        alt={currentPageData.name}
+                        className={`w-full h-auto block transition-opacity duration-150 ${imageLoading ? 'opacity-0' : 'opacity-100'}`}
+                        style={{ maxWidth: '100%' }}
+                        onLoadStart={() => {
+                          if (loadedImageUrl !== imageUrl) {
+                            setImageLoading(true)
+                          }
+                        }}
+                        onLoad={() => {
+                          setImageLoading(false)
+                          setLoadedImageUrl(imageUrl)
+                        }}
+                      />
+                    </div>
                   )
                 })()
               ) : (
@@ -1689,7 +1716,7 @@ export default function ProjectViewer({ project, onBack }) {
                 <div>
                   <h2 className="text-sm font-semibold text-neutral-800">Approval status</h2>
                   <p className="text-xs text-neutral-500">
-                    All pages: {approvalProgress.approved}/{approvalProgress.total} views approved
+                    Pages approved: {approvalProgress.approved}/{approvalProgress.total}
                   </p>
                 </div>
                 {approvalProgress.total > 0 && (
@@ -1710,64 +1737,45 @@ export default function ProjectViewer({ project, onBack }) {
                 />
               </div>
 
-              <div className="mt-3 space-y-2">
-                {approvalViewportsForCurrentPage.map((viewportKey) => {
-                  const approval = approvals[currentPageKey]?.[viewportKey]
-                  const isActive = viewportKey === approvalViewportKey && viewport !== 'full'
-                  return (
-                    <div
-                      key={viewportKey}
-                      className={`flex items-center justify-between rounded-md border px-2 py-2 ${
-                        isActive ? 'border-indigo-200 bg-white' : 'border-neutral-200 bg-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {approval ? (
-                          <Check className="w-4 h-4 text-emerald-600" />
-                        ) : (
-                          <Clock className="w-4 h-4 text-amber-600" />
-                        )}
-                        <div>
-                          <div className="text-sm font-medium text-neutral-800">
-                            {APPROVAL_LABELS[viewportKey] || viewportKey}
-                          </div>
-                          <div className="text-xs text-neutral-500">
-                            {approval ? `Approved ${formatTimestamp(approval.approvedAt)}` : 'Needs review'}
-                          </div>
-                          {approval?.approvedBy && (
-                            <div className="text-[11px] text-neutral-400">by {approval.approvedBy}</div>
-                          )}
-                        </div>
+              <div className="mt-3 rounded-md border border-neutral-200 bg-white px-3 py-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    {currentPageApproval.approved ? (
+                      <Check className="w-4 h-4 text-emerald-600 mt-0.5" />
+                    ) : (
+                      <Clock className="w-4 h-4 text-amber-600 mt-0.5" />
+                    )}
+                    <div>
+                      <div className="text-sm font-medium text-neutral-800">This page</div>
+                      <div className="text-xs text-neutral-500">
+                        {currentPageApproval.approved
+                          ? `Approved ${formatTimestamp(currentPageApproval.latestApproval?.approvedAt)}`
+                          : 'Needs review'}
                       </div>
-                      {approval ? (
-                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-full">
-                          Approved
-                        </span>
-                      ) : isActive ? (
-                        <button
-                          onClick={() => requestApproval(currentPageKey, viewportKey)}
-                          className="text-xs font-semibold px-2 py-1 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
-                        >
-                          Approve
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setViewport(viewportKey)}
-                          className="text-xs font-semibold px-2 py-1 bg-neutral-200 text-neutral-700 rounded-md hover:bg-neutral-300"
-                        >
-                          View
-                        </button>
+                      <div className="text-[11px] text-neutral-400">
+                        Covers {formatViewportList(approvalViewportsForCurrentPage)}
+                      </div>
+                      {currentPageApproval.latestApproval?.approvedBy && (
+                        <div className="text-[11px] text-neutral-400">
+                          by {currentPageApproval.latestApproval.approvedBy}
+                        </div>
                       )}
                     </div>
-                  )
-                })}
+                  </div>
+                  {currentPageApproval.approved ? (
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-full">
+                      Approved
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => requestApproval(currentPageKey, approvalViewportsForCurrentPage)}
+                      className="text-xs font-semibold px-2 py-1 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+                    >
+                      Approve page
+                    </button>
+                  )}
+                </div>
               </div>
-
-              {viewport === 'full' && (
-                <p className="mt-2 text-xs text-amber-700">
-                  Approvals are tracked per device view. Switch to Desktop/Tablet/Mobile to approve.
-                </p>
-              )}
 
               {approvalNotice && (
                 <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-800">
@@ -1781,7 +1789,9 @@ export default function ProjectViewer({ project, onBack }) {
                   <div className="space-y-1">
                     {pageApprovalHistory.map((entry) => {
                       const actionLabel = entry.action === 'approved' ? 'Approved' : 'Cleared'
-                      const viewportLabel = APPROVAL_LABELS[entry.viewport] || entry.viewport
+                      const viewportLabel = entry.viewports?.length
+                        ? formatViewportList(entry.viewports)
+                        : (APPROVAL_LABELS[entry.viewport] || entry.viewport || 'views')
                       const historyTime = entry.timestamp || entry.approvedAt || entry.clearedAt
                       return (
                         <div key={entry.id} className="text-[11px] text-neutral-500">
@@ -1992,10 +2002,10 @@ export default function ProjectViewer({ project, onBack }) {
       {showApprovalModal && approvalTarget && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold mb-2">Approve this view</h3>
+            <h3 className="text-lg font-bold mb-2">Approve this page</h3>
             <p className="text-sm text-neutral-600 mb-4">
-              You are approving <span className="font-semibold text-neutral-800">{approvalTarget.pageName}</span> for the
-              <span className="font-semibold text-neutral-800"> {approvalTargetLabel}</span> view.
+              You are approving <span className="font-semibold text-neutral-800">{approvalTarget.pageName}</span> for
+              <span className="font-semibold text-neutral-800"> {approvalTargetLabel}</span>.
               {approvalTargetCommentCount > 0 ? ` ${approvalTargetCommentCount} comment${approvalTargetCommentCount > 1 ? 's' : ''} logged.` : ' No comments logged.'}
             </p>
 
