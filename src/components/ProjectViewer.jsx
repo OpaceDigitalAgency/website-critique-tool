@@ -67,6 +67,8 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
   const dragTargetRef = useRef(null)
   const approvalsRef = useRef(approvals)
   const approvalNoticeTimeoutRef = useRef(null)
+  const bodyOverflowRef = useRef('')
+  const htmlOverflowRef = useRef('')
 
   // Reset page/viewport when switching projects
   useEffect(() => {
@@ -75,6 +77,18 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
     setImageLoading(true)
     setLoadedImageUrl(null)
   }, [project?.id])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    bodyOverflowRef.current = document.body.style.overflow
+    htmlOverflowRef.current = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = bodyOverflowRef.current || ''
+      document.documentElement.style.overflow = htmlOverflowRef.current || ''
+    }
+  }, [])
 
   // Reset image loading state when viewport or page changes
   useEffect(() => {
