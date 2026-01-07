@@ -70,6 +70,23 @@ export async function uploadImages(assignments, metadata) {
   let projectId = null;
   let finalResponse = null;
 
+  const requestWithRetry = async (formData, attempts = 3) => {
+    let lastResponse = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const response = await fetch(`${API_BASE}/upload-images?v=${API_VERSION}`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (response.ok) return response;
+      lastResponse = response;
+      if (response.status < 500 || attempt === attempts) {
+        return response;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+    return lastResponse;
+  };
+
   for (let i = 0; i < assignments.length; i += BATCH_SIZE) {
     const batch = assignments.slice(i, i + BATCH_SIZE);
     const formData = new FormData();
@@ -95,10 +112,7 @@ export async function uploadImages(assignments, metadata) {
 
     formData.append('assignments', JSON.stringify(payload));
 
-    const response = await fetch(`${API_BASE}/upload-images?v=${API_VERSION}`, {
-      method: 'POST',
-      body: formData,
-    });
+    const response = await requestWithRetry(formData);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');

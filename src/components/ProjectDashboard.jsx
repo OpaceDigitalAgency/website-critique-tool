@@ -79,6 +79,26 @@ const getFileExtension = (fileName) => {
 
 const isZipFile = (file) => file?.name?.toLowerCase().endsWith('.zip')
 
+const shouldSkipZipPath = (path) => {
+  if (!path) return true
+  const normalized = path.replace(/\\/g, '/')
+  const fileName = normalized.split('/').pop() || ''
+  return normalized.includes('__MACOSX/') || fileName.startsWith('._')
+}
+
+const inferViewportFromPath = (filePath, fileName) => {
+  const normalized = (filePath || '').toLowerCase().replace(/\\/g, '/')
+  const segments = normalized.split('/').filter(Boolean)
+  for (const [viewport, tokens] of Object.entries(VIEWPORT_TOKENS)) {
+    for (const token of tokens) {
+      if (segments.includes(token)) {
+        return viewport
+      }
+    }
+  }
+  return inferViewport(fileName || filePath || '')
+}
+
 const classifyZipContents = async (file) => {
   const zip = new JSZip()
   const zipContent = await zip.loadAsync(file)
@@ -87,6 +107,7 @@ const classifyZipContents = async (file) => {
 
   for (const [path, entry] of Object.entries(zipContent.files)) {
     if (entry.dir) continue
+    if (shouldSkipZipPath(path)) continue
     const ext = getFileExtension(path)
     if (ext === 'html' || ext === 'htm') {
       hasHtml = true
@@ -109,12 +130,21 @@ const extractImagesFromZip = async (file) => {
 
   for (const [path, entry] of Object.entries(zipContent.files)) {
     if (entry.dir) continue
+    if (shouldSkipZipPath(path)) continue
     const ext = getFileExtension(path)
     const mimeType = IMAGE_MIME_TYPES[ext]
     if (!mimeType) continue
     const blob = await entry.async('blob')
     const fileName = path.split('/').pop() || `image.${ext}`
-    images.push(new File([blob], fileName, { type: mimeType, lastModified: Date.now() }))
+    const viewport = inferViewportFromPath(path, fileName)
+    const pageName = inferPageName(fileName)
+    images.push({
+      file: new File([blob], fileName, { type: mimeType, lastModified: Date.now() }),
+      pageName,
+      viewport,
+      sourcePath: path,
+      originalName: fileName,
+    })
   }
 
   return images
@@ -153,23 +183,45 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
   }
 
   const addImageAssignments = (files, viewportOverride = null) => {
-    const images = files.filter(file => file.type.startsWith('image/'))
+    const normalized = files
+      .map((item) => {
+        if (item instanceof File) {
+          return {
+            file: item,
+            pageName: inferPageName(item.name),
+            viewport: inferViewport(item.name),
+            sourceKey: item.name,
+          }
+        }
+        if (item?.file instanceof File) {
+          return {
+            file: item.file,
+            pageName: item.pageName || inferPageName(item.file.name),
+            viewport: item.viewport || inferViewport(item.file.name),
+            sourceKey: item.sourcePath || item.file.name,
+          }
+        }
+        return null
+      })
+      .filter(Boolean)
+
+    const images = normalized.filter(entry => entry.file.type.startsWith('image/'))
     if (images.length === 0) return
 
     setImageAssignments((prev) => {
       const existing = new Map(prev.map(item => [item.id, item]))
       const next = [...prev]
 
-      images.forEach((file) => {
-        const viewport = viewportOverride || inferViewport(file.name)
-        const id = `${file.name}-${file.lastModified}-${viewport}`
+      images.forEach((entry) => {
+        const viewport = viewportOverride || entry.viewport
+        const id = `${entry.sourceKey}-${entry.file.lastModified}-${viewport}`
         if (existing.has(id)) return
         next.push({
           id,
-          file,
-          pageName: inferPageName(file.name),
+          file: entry.file,
+          pageName: entry.pageName,
           viewport,
-          previewUrl: URL.createObjectURL(file),
+          previewUrl: URL.createObjectURL(entry.file),
         })
       })
 
