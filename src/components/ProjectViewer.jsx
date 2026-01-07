@@ -56,8 +56,11 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
   const [approvalTarget, setApprovalTarget] = useState(null)
   const [imageLoading, setImageLoading] = useState(false)
   const [loadedImageUrl, setLoadedImageUrl] = useState(null)
+  const [isPanelOpen, setIsPanelOpen] = useState(true)
+  const [viewerWidth, setViewerWidth] = useState(null)
   const overlayRef = useRef(null)
   const iframeRef = useRef(null)
+  const viewerRef = useRef(null)
   const saveTimeoutRef = useRef(null)
   const [iframeHeight, setIframeHeight] = useState('100vh')
   // Refs for drag state to avoid stale closures
@@ -77,6 +80,18 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
     setImageLoading(true)
     setLoadedImageUrl(null)
   }, [project?.id])
+
+  useEffect(() => {
+    if (!viewerRef.current || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry?.contentRect?.width) {
+        setViewerWidth(entry.contentRect.width)
+      }
+    })
+    observer.observe(viewerRef.current)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -1335,6 +1350,11 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
   }
 
   const viewportWidth = VIEWPORTS[viewport].width
+  const resolvedViewportWidth = (() => {
+    if (viewportWidth === '100%') return '100%'
+    if (!viewerWidth) return viewportWidth
+    return Math.min(viewportWidth, viewerWidth)
+  })()
   const availableViewports = (() => {
     if (!isImageProject) {
       return Object.keys(VIEWPORTS)
@@ -1357,7 +1377,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
       {/* Main App Header - same as Dashboard */}
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
         <div className="max-w-full mx-auto px-6 py-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             {isClientView ? (
               <div className="flex items-center gap-3">
                 <img
@@ -1384,12 +1404,12 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
               </a>
             )}
             {!isClientView && (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <input
                   type="text"
                   placeholder="Search projects..."
                   title="Search projects"
-                  className="pl-10 pr-4 py-2 bg-neutral-100 border border-neutral-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="pl-10 pr-4 py-2 bg-neutral-100 border border-neutral-200 rounded-lg text-sm w-full sm:w-56 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <button
                   onClick={onBack}
@@ -1408,7 +1428,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
         {/* Action Bar - Back, Share, Add Comments, Export PDF */}
         <div className="bg-white border-b border-neutral-200">
           <div className="max-w-full mx-auto px-6 py-3">
-            <div className={`flex items-center ${isClientView ? 'justify-end' : 'justify-between'}`}>
+            <div className={`flex flex-col gap-3 lg:flex-row lg:items-center ${isClientView ? 'lg:justify-end' : 'lg:justify-between'}`}>
               {!isClientView && (
                 <button
                   onClick={onBack}
@@ -1420,7 +1440,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
                 </button>
               )}
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 {saving && (
                   <span className="text-sm text-neutral-500 flex items-center gap-1">
                     <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-neutral-500"></div>
@@ -1517,34 +1537,34 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
           </div>
         )}
 
-        {/* Viewport and Page Tabs Bar */}
-        <div className="bg-white border-b border-neutral-200">
-          <div className="max-w-full mx-auto px-6 py-3">
-            <div className="flex items-center gap-4">
-              <div className="flex gap-2">
-                {availableViewports.map((key) => {
-                  const { label, icon: Icon } = VIEWPORTS[key]
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setViewport(key)}
-                      title={`Switch to ${label} view`}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm ${
-                        viewport === key
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
+      {/* Viewport and Page Tabs Bar */}
+      <div className="bg-white border-b border-neutral-200">
+        <div className="max-w-full mx-auto px-6 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
+            <div className="flex flex-wrap gap-2">
+              {availableViewports.map((key) => {
+                const { label, icon: Icon } = VIEWPORTS[key]
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setViewport(key)}
+                    title={`Switch to ${label} view`}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm ${
+                      viewport === key
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
 
-              <div className="flex-1 flex flex-wrap gap-2 overflow-x-auto">
-                {project.pages.map((page, index) => {
-                  const { approved } = getPageApprovalStatus(page)
+            <div className="flex-1 flex flex-wrap gap-2 overflow-x-auto">
+              {project.pages.map((page, index) => {
+                const { approved } = getPageApprovalStatus(page)
                   return (
                     <button
                       key={index}
@@ -1571,11 +1591,14 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
 
       {/* Main Content Area - Preview + Comments Panel */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        <div className={`flex-1 min-h-0 bg-neutral-100 overflow-auto ${viewportWidth !== '100%' ? 'flex justify-center' : ''}`}>
+        <div
+          ref={viewerRef}
+          className={`flex-1 min-h-0 bg-neutral-100 overflow-auto ${viewportWidth !== '100%' ? 'flex justify-center' : ''}`}
+        >
           <div
             className="bg-white relative flex-shrink-0"
             style={{
-              width: viewportWidth === '100%' ? '100%' : `${viewportWidth}px`,
+              width: resolvedViewportWidth === '100%' ? '100%' : `${resolvedViewportWidth}px`,
               maxWidth: isImageProject ? 'calc(100vw - 320px)' : undefined,
               minHeight: '100%'
             }}
@@ -1747,8 +1770,22 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
           </div>
         </div>
 
-        <div className="w-80 min-w-[280px] min-h-0 flex-shrink-0 bg-white border-l overflow-y-auto">
-          <div className="p-4 pb-16">
+        <div
+          className={`min-h-0 flex-shrink-0 bg-white border-l overflow-hidden transition-all duration-200 ${
+            isPanelOpen ? 'w-80 min-w-[280px]' : 'w-12'
+          }`}
+        >
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <span className={`text-xs font-semibold text-neutral-600 ${isPanelOpen ? '' : 'hidden'}`}>Comments</span>
+            <button
+              onClick={() => setIsPanelOpen((prev) => !prev)}
+              className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-[11px] font-semibold text-neutral-600 hover:bg-neutral-50"
+              title={isPanelOpen ? 'Collapse comments panel' : 'Expand comments panel'}
+            >
+              {isPanelOpen ? 'Collapse' : 'Expand'}
+            </button>
+          </div>
+          <div className={`p-4 pb-16 overflow-y-auto ${isPanelOpen ? '' : 'hidden'}`}>
             <div className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
