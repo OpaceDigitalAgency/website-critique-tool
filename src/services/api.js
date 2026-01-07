@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.0.8';
+const API_VERSION = '2.0.9';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -143,15 +143,16 @@ async function uploadProjectChunked(file, metadata, onProgress) {
 
   const { projectId } = await initResponse.json();
 
-  // Step 3: Upload files with high concurrency
-  const BATCH_SIZE = 10; // Upload 10 files concurrently
+  // Step 3: Upload files with lower concurrency to avoid timeouts
+  const BATCH_SIZE = 5; // Reduced from 10 to avoid overwhelming Netlify
   let uploadedCount = 0;
   const failedUploads = [];
 
   for (let i = 0; i < filesToUpload.length; i += BATCH_SIZE) {
     const batch = filesToUpload.slice(i, i + BATCH_SIZE);
 
-    await Promise.all(batch.map(async ({ path, zipEntry }) => {
+    // Use Promise.allSettled instead of Promise.all to continue even if some fail
+    const results = await Promise.allSettled(batch.map(async ({ path, zipEntry }) => {
       try {
         const ext = path.split('.').pop().toLowerCase();
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
@@ -189,19 +190,26 @@ async function uploadProjectChunked(file, metadata, onProgress) {
         if (onProgress) {
           onProgress(10 + Math.round((uploadedCount / filesToUpload.length) * 80));
         }
+
+        return { success: true, path };
       } catch (error) {
         console.error(`[CHUNKED] Error uploading ${path}:`, error);
         failedUploads.push(path);
-        throw error;
+        return { success: false, path, error: error.message };
       }
     }));
+
+    // Log results but don't throw - continue with remaining files
+    results.forEach((result, idx) => {
+      if (result.status === 'rejected') {
+        console.error(`[CHUNKED] Upload rejected:`, result.reason);
+      } else if (!result.value.success) {
+        console.error(`[CHUNKED] Upload failed for ${result.value.path}:`, result.value.error);
+      }
+    });
   }
 
-  if (failedUploads.length > 0) {
-    console.error(`[CHUNKED] Failed uploads: ${failedUploads.join(', ')}`);
-  }
-
-  // Step 4: Finalise project
+  // Step 4: Finalise project (even if some files failed)
   if (onProgress) onProgress(95);
 
   const finaliseResponse = await fetch(`${API_BASE}/finalise-project?v=${API_VERSION}`, {
@@ -216,7 +224,17 @@ async function uploadProjectChunked(file, metadata, onProgress) {
   }
 
   if (onProgress) onProgress(100);
-  return finaliseResponse.json();
+
+  const result = await finaliseResponse.json();
+
+  // Add warning if some files failed
+  if (failedUploads.length > 0) {
+    console.warn(`[CHUNKED] Project created but ${failedUploads.length} files failed to upload:`, failedUploads);
+    result.warning = `${failedUploads.length} file(s) failed to upload: ${failedUploads.slice(0, 5).join(', ')}${failedUploads.length > 5 ? '...' : ''}`;
+    result.failedFiles = failedUploads;
+  }
+
+  return result;
 }
 
 /**

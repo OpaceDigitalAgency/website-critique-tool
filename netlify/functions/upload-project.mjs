@@ -165,6 +165,7 @@ export default async (req, context) => {
       description: description,
       createdAt: new Date().toISOString(),
       lastModified: new Date().toISOString(),
+      type: "zip",
       pages: pages,
       assetKeys: assetKeys,
     };
@@ -201,6 +202,7 @@ export default async (req, context) => {
       clientName: clientName,
       createdAt: project.createdAt,
       pageCount: pages.length,
+      type: "zip",
     });
     console.log(`[UPLOAD] Updating projects list with ${projectsList.length} projects`);
     await projectsStore.set("_list", JSON.stringify(projectsList), { metadata: { contentType: "application/json" } });
@@ -231,4 +233,3 @@ export default async (req, context) => {
 export const config = {
   path: "/api/upload-project",
 };
-

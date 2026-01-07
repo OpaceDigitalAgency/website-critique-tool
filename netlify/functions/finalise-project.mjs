@@ -62,6 +62,7 @@ export default async (req, context) => {
       clientName: projectData.clientName,
       createdAt: projectData.createdAt,
       pageCount: projectData.pages.length,
+      type: projectData.type || "zip",
     });
 
     await projectsStore.set("_list", JSON.stringify(projectsList), {
@@ -89,4 +90,3 @@ export default async (req, context) => {
 export const config = {
   path: "/api/finalise-project",
 };
-

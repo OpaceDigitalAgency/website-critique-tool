@@ -135,8 +135,8 @@ export default async (req, context) => {
     // Get the base URL from the request
     const baseUrl = new URL(req.url).origin;
 
-    // Fetch HTML content for each page from assets store
-    if (projectData.pages && projectData.pages.length > 0) {
+    // Fetch HTML content for each page from assets store (skip for image projects)
+    if (projectData.type !== "images" && projectData.pages && projectData.pages.length > 0) {
       const pagesWithContent = (await Promise.all(
         projectData.pages.map(async (page) => {
           try {
@@ -211,4 +211,3 @@ export default async (req, context) => {
 export const config = {
   path: ["/api/project/:projectId", "/api/project"],
 };
-
