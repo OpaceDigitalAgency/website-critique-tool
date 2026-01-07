@@ -14,6 +14,28 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+  const isProjectReadyForView = (project) => {
+    if (!project) return false
+    if (!project.pages || project.pages.length === 0) return false
+    if (project.type === 'images') return true
+    return project.pages.every(page => typeof page.content === 'string')
+  }
+
+  const fetchProjectWithRetry = async (projectId, attempts = 8) => {
+    let lastProject = null
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const project = await api.getProject(projectId)
+      lastProject = project
+      if (isProjectReadyForView(project)) {
+        return project
+      }
+      await sleep(250 * attempt)
+    }
+    return lastProject
+  }
+
   useEffect(() => {
     // Check if we're on a review URL
     const path = window.location.pathname
@@ -46,11 +68,16 @@ function App() {
     setError(null)
     setCurrentView('viewer') // Show viewer immediately with loading state
     try {
-      const project = await api.getProject(projectId)
+      const project = await fetchProjectWithRetry(projectId)
+      if (!isProjectReadyForView(project)) {
+        setSelectedProject(project)
+        setError('Project is still processing. Please refresh in a moment.')
+        return
+      }
       setSelectedProject(project)
     } catch (err) {
       console.error('Failed to load project:', err)
-      setError('Project not found or has been deleted.')
+      setError(err.message || 'Project not found or has been deleted.')
       setCurrentView('dashboard')
       loadProjects()
     } finally {
@@ -63,11 +90,16 @@ function App() {
     if (!project.pages || project.pages.length === 0) {
       setLoading(true)
       try {
-        const fullProject = await api.getProject(project.id)
+        const fullProject = await fetchProjectWithRetry(project.id)
+        if (!isProjectReadyForView(fullProject)) {
+          setSelectedProject(fullProject)
+          setError('Project is still processing. Please refresh in a moment.')
+          return
+        }
         setSelectedProject(fullProject)
         window.history.pushState({}, '', `/review/${project.id}`)
       } catch (err) {
-        setError('Failed to load project details')
+        setError(err.message || 'Failed to load project details')
         return
       } finally {
         setLoading(false)
@@ -90,9 +122,22 @@ function App() {
     // Project is already created via API in dashboard
     // Automatically navigate to the new project
     if (newProject && newProject.id) {
-      setSelectedProject(newProject)
       setCurrentView('viewer')
-      window.history.pushState({}, '', `/review/${newProject.id}`)
+      setLoading(true)
+      try {
+        const fullProject = await fetchProjectWithRetry(newProject.id)
+        if (!isProjectReadyForView(fullProject)) {
+          setSelectedProject(fullProject)
+          setError('Project is still processing. Please refresh in a moment.')
+          return
+        }
+        setSelectedProject(fullProject)
+        window.history.pushState({}, '', `/review/${newProject.id}`)
+      } catch (err) {
+        setError(err.message || 'Failed to load project details')
+      } finally {
+        setLoading(false)
+      }
     }
     // Also refresh the list in background
     loadProjects()
@@ -178,4 +223,3 @@ function App() {
 }
 
 export default App
-

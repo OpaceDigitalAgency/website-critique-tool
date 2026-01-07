@@ -60,6 +60,45 @@ export async function uploadProject(file, metadata, onProgress) {
 }
 
 /**
+ * Upload image mockups grouped by page + viewport
+ * @param {Array} assignments - [{ id, file, pageName, viewport }]
+ * @param {Object} metadata - Project metadata (name, clientName, description)
+ * @returns {Promise<Object>} - Created project data
+ */
+export async function uploadImages(assignments, metadata) {
+  const formData = new FormData();
+  formData.append('name', metadata.name || 'Untitled Project');
+  formData.append('clientName', metadata.clientName || '');
+  formData.append('description', metadata.description || '');
+
+  const payload = assignments.map((assignment, index) => {
+    const field = `file_${index}`;
+    formData.append(field, assignment.file, assignment.file.name);
+    return {
+      id: assignment.id,
+      pageName: assignment.pageName,
+      viewport: assignment.viewport,
+      fileField: field,
+      originalName: assignment.file.name,
+    };
+  });
+
+  formData.append('assignments', JSON.stringify(payload));
+
+  const response = await fetch(`${API_BASE}/upload-images?v=${API_VERSION}`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(error.error || 'Upload failed');
+  }
+
+  return response.json();
+}
+
+/**
  * Direct upload for smaller files
  */
 async function uploadProjectDirect(file, metadata, onProgress) {
@@ -262,7 +301,10 @@ export async function listProjects() {
  * @returns {Promise<Object>} - Full project data
  */
 export async function getProject(projectId) {
-  const response = await fetch(`${API_BASE}/project/${projectId}?v=${API_VERSION}`);
+  const timestamp = Date.now();
+  const response = await fetch(`${API_BASE}/project/${projectId}?v=${API_VERSION}&t=${timestamp}`, {
+    cache: 'no-store',
+  });
   
   if (!response.ok) {
     if (response.status === 404) {
@@ -359,6 +401,7 @@ export function getShareUrl(projectId) {
 
 export default {
   uploadProject,
+  uploadImages,
   listProjects,
   getProject,
   deleteProject,
@@ -367,4 +410,3 @@ export default {
   saveComments,
   getShareUrl,
 };
-
