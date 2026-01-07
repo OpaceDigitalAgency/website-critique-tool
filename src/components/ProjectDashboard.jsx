@@ -373,6 +373,19 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     }
   }
 
+  const applyImageProjectName = (files) => {
+    if (hasCustomName) return
+    if (!files || files.length === 0) return
+    if (formData.name?.trim()) return
+    const firstFile = files[0]
+    const fileName = firstFile?.name || firstFile?.file?.name || ''
+    if (!fileName) return
+    const inferred = inferPageName(fileName)
+    if (inferred) {
+      setFormData((prev) => ({ ...prev, name: inferred }))
+    }
+  }
+
   const handleFileSelect = async (e, type, viewportOverride = null) => {
     const files = Array.from(e.target.files || [])
     const firstFile = files[0]
@@ -387,6 +400,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
             return
           }
           addImageAssignments(extractedImages)
+          applyZipProjectName(firstFile.name)
           setUploadType('images')
           setShowUploadModal(true)
         } else {
@@ -404,6 +418,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
       }
     } else if (type === 'images') {
       addImageAssignments(files, viewportOverride)
+      applyImageProjectName(files)
       setUploadType('images')
       setShowUploadModal(true)
     }
@@ -429,6 +444,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
             return
           }
           addImageAssignments(extractedImages)
+          applyZipProjectName(zipFile.name)
           setUploadType('images')
           setShowUploadModal(true)
         } else {
@@ -451,6 +467,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     const images = files.filter(f => f.type.startsWith('image/'))
     if (images.length > 0) {
       addImageAssignments(images)
+      applyImageProjectName(images)
       setUploadType('images')
       setShowUploadModal(true)
     }

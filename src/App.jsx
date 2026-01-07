@@ -16,10 +16,45 @@ function App() {
 
   const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
+  const getImageProjectSummary = (project) => {
+    if (!project?.assetKeys || !Array.isArray(project.assetKeys)) {
+      return { pageSlugs: new Set(), pageVariants: new Map() }
+    }
+
+    const pageSlugs = new Set()
+    const pageVariants = new Map()
+
+    project.assetKeys.forEach((key) => {
+      const match = key.match(/images\/([^/]+)\/([^/.]+)\.[a-z0-9]+$/i)
+      if (!match) return
+      const slug = match[1]
+      const viewport = match[2]
+      pageSlugs.add(slug)
+      if (!pageVariants.has(slug)) {
+        pageVariants.set(slug, new Set())
+      }
+      pageVariants.get(slug).add(viewport)
+    })
+
+    return { pageSlugs, pageVariants }
+  }
+
   const isProjectReadyForView = (project) => {
     if (!project) return false
     if (!project.pages || project.pages.length === 0) return false
-    if (project.type === 'images') return true
+    if (project.type === 'images') {
+      const { pageSlugs, pageVariants } = getImageProjectSummary(project)
+      if (pageSlugs.size === 0) return false
+      if (project.pages.length < pageSlugs.size) return false
+      return project.pages.every((page) => {
+        const slug = page.path?.split('/')?.pop()
+        if (!slug) return false
+        const expected = pageVariants.get(slug)
+        const variants = page.variants || {}
+        const variantCount = Object.keys(variants).length
+        return expected ? variantCount >= expected.size : variantCount > 0
+      })
+    }
     return project.pages.every(page => typeof page.content === 'string')
   }
 
