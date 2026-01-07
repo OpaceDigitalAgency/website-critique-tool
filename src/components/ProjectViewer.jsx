@@ -312,8 +312,16 @@ export default function ProjectViewer({ project, onBack }) {
     dragStateRef.current = { isDragging, draggedComment, dragOffset }
   }, [isDragging, draggedComment, dragOffset])
 
+  const stopDragging = useCallback(() => {
+    dragStateRef.current = { isDragging: false, draggedComment: null, dragOffset: { x: 0, y: 0 } }
+    setIsDragging(false)
+    setDraggedComment(null)
+    setDragOffset({ x: 0, y: 0 })
+  }, [])
+
   // Drag handlers for repositioning existing comments
   const handleCommentDragStart = useCallback((e, comment) => {
+    if (e.button !== 0 || !overlayRef.current) return
     e.stopPropagation()
     e.preventDefault()
 
@@ -327,6 +335,7 @@ export default function ProjectViewer({ project, onBack }) {
       y: mouseY - comment.y
     }
 
+    dragStateRef.current = { isDragging: true, draggedComment: comment, dragOffset: offset }
     setDragOffset(offset)
     setDraggedComment(comment)
     setIsDragging(true)
@@ -334,11 +343,13 @@ export default function ProjectViewer({ project, onBack }) {
 
   // Add document-level event listeners for dragging
   useEffect(() => {
-    if (!isDragging) return
-
     const handleMouseMove = (e) => {
-      const { draggedComment, dragOffset } = dragStateRef.current
-      if (!draggedComment || !overlayRef.current) return
+      const { isDragging: dragging, draggedComment, dragOffset } = dragStateRef.current
+      if (!dragging || !draggedComment || !overlayRef.current) return
+      if (e.buttons === 0) {
+        stopDragging()
+        return
+      }
 
       const rect = overlayRef.current.getBoundingClientRect()
       const newX = e.clientX - rect.left - dragOffset.x
@@ -361,19 +372,20 @@ export default function ProjectViewer({ project, onBack }) {
     }
 
     const handleMouseUp = () => {
-      setIsDragging(false)
-      setDraggedComment(null)
-      setDragOffset({ x: 0, y: 0 })
+      if (!dragStateRef.current.isDragging) return
+      stopDragging()
     }
 
-    document.addEventListener('mousemove', handleMouseMove, { passive: false })
-    document.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('mousemove', handleMouseMove, { passive: false })
+    window.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('blur', handleMouseUp)
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('blur', handleMouseUp)
     }
-  }, [isDragging])
+  }, [stopDragging])
 
   const handleAddComment = () => {
     if (!commentText.trim() || !tempPinPosition) return
