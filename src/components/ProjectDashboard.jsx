@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo } from 'react'
+import JSZip from 'jszip'
 import {
   Upload, Globe, Plus, Trash2, Eye, Check, Link, Image, FileCode,
   FolderArchive, MoreHorizontal, Clock, Users, Search, Grid3X3, List,
@@ -19,6 +20,15 @@ const VIEWPORT_TOKENS = {
   desktop: ['desktop', 'desk', 'web', 'pc'],
   tablet: ['tablet', 'tab'],
   mobile: ['mobile', 'phone', 'mob'],
+}
+
+const IMAGE_MIME_TYPES = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  webp: 'image/webp',
 }
 
 const titleCase = (value) => {
@@ -60,6 +70,54 @@ const slugifyPageName = (value) => {
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
+}
+
+const getFileExtension = (fileName) => {
+  if (!fileName || !fileName.includes('.')) return ''
+  return fileName.split('.').pop().toLowerCase()
+}
+
+const isZipFile = (file) => file?.name?.toLowerCase().endsWith('.zip')
+
+const classifyZipContents = async (file) => {
+  const zip = new JSZip()
+  const zipContent = await zip.loadAsync(file)
+  let hasHtml = false
+  let hasImages = false
+
+  for (const [path, entry] of Object.entries(zipContent.files)) {
+    if (entry.dir) continue
+    const ext = getFileExtension(path)
+    if (ext === 'html' || ext === 'htm') {
+      hasHtml = true
+      break
+    }
+    if (IMAGE_MIME_TYPES[ext]) {
+      hasImages = true
+    }
+  }
+
+  if (hasHtml) return 'zip'
+  if (hasImages) return 'images'
+  return 'zip'
+}
+
+const extractImagesFromZip = async (file) => {
+  const zip = new JSZip()
+  const zipContent = await zip.loadAsync(file)
+  const images = []
+
+  for (const [path, entry] of Object.entries(zipContent.files)) {
+    if (entry.dir) continue
+    const ext = getFileExtension(path)
+    const mimeType = IMAGE_MIME_TYPES[ext]
+    if (!mimeType) continue
+    const blob = await entry.async('blob')
+    const fileName = path.split('/').pop() || `image.${ext}`
+    images.push(new File([blob], fileName, { type: mimeType, lastModified: Date.now() }))
+  }
+
+  return images
 }
 
 export default function ProjectDashboard({ projects, onProjectSelect, onProjectCreate, onProjectDelete, loading }) {
@@ -184,17 +242,35 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     }
   }
 
-  const handleFileSelect = (e, type, viewportOverride = null) => {
+  const handleFileSelect = async (e, type, viewportOverride = null) => {
     const files = Array.from(e.target.files || [])
-    if (type === 'zip' && files[0]?.name.endsWith('.zip')) {
-      revokeImagePreviews(imageAssignments)
-      setImageAssignments([])
-      setImageFiles([])
-      setImageUploadStep(0)
-      setZipFile(files[0])
-      setUploadType('zip')
-      setShowUploadModal(true)
-      applyZipProjectName(files[0].name)
+    const firstFile = files[0]
+
+    if (type === 'zip' && isZipFile(firstFile)) {
+      try {
+        const classification = await classifyZipContents(firstFile)
+        if (classification === 'images') {
+          const extractedImages = await extractImagesFromZip(firstFile)
+          if (extractedImages.length === 0) {
+            setUploadError('No images found in that ZIP file.')
+            return
+          }
+          addImageAssignments(extractedImages)
+          setUploadType('images')
+          setShowUploadModal(true)
+        } else {
+          revokeImagePreviews(imageAssignments)
+          setImageAssignments([])
+          setImageFiles([])
+          setImageUploadStep(0)
+          setZipFile(firstFile)
+          setUploadType('zip')
+          setShowUploadModal(true)
+          applyZipProjectName(firstFile.name)
+        }
+      } catch (error) {
+        setUploadError('Unable to read that ZIP file.')
+      }
     } else if (type === 'images') {
       addImageAssignments(files, viewportOverride)
       setUploadType('images')
@@ -211,16 +287,32 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
     const files = Array.from(e.dataTransfer.files)
 
     // Check for ZIP
-    const zipFile = files.find(f => f.name.endsWith('.zip'))
+    const zipFile = files.find(isZipFile)
     if (zipFile) {
-      revokeImagePreviews(imageAssignments)
-      setImageAssignments([])
-      setImageFiles([])
-      setImageUploadStep(0)
-      setZipFile(zipFile)
-      setUploadType('zip')
-      setShowUploadModal(true)
-      applyZipProjectName(zipFile.name)
+      try {
+        const classification = await classifyZipContents(zipFile)
+        if (classification === 'images') {
+          const extractedImages = await extractImagesFromZip(zipFile)
+          if (extractedImages.length === 0) {
+            setUploadError('No images found in that ZIP file.')
+            return
+          }
+          addImageAssignments(extractedImages)
+          setUploadType('images')
+          setShowUploadModal(true)
+        } else {
+          revokeImagePreviews(imageAssignments)
+          setImageAssignments([])
+          setImageFiles([])
+          setImageUploadStep(0)
+          setZipFile(zipFile)
+          setUploadType('zip')
+          setShowUploadModal(true)
+          applyZipProjectName(zipFile.name)
+        }
+      } catch (error) {
+        setUploadError('Unable to read that ZIP file.')
+      }
       return
     }
 
@@ -681,6 +773,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
                     <p className="font-semibold text-neutral-700 uppercase tracking-wide">How image mockups work</p>
                     <p>Upload each page as an image. Add desktop versions first, then optional tablet/mobile mockups.</p>
                     <p>Use clear filenames like <span className="font-medium text-neutral-700">homepage-desktop.png</span> so we can auto-match viewports.</p>
+                    <p>Tip: You can also drop a ZIP of images and we will unpack it for you.</p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
