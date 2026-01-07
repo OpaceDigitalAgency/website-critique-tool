@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.0.4'
+const COMPONENT_VERSION = '2.0.5'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -31,6 +31,8 @@ export default function ProjectViewer({ project, onBack }) {
 
   // Load comments from cloud API
   useEffect(() => {
+    if (!project?.id) return
+
     const loadComments = async () => {
       try {
         const cloudComments = await api.getComments(project.id)
@@ -56,10 +58,12 @@ export default function ProjectViewer({ project, onBack }) {
       }
     }
     loadComments()
-  }, [project.id])
+  }, [project?.id])
 
   // Auto-save comments to cloud with debounce
   const saveCommentsToCloud = useCallback(async (commentsToSave) => {
+    if (!project?.id) return
+
     setSaving(true)
     try {
       // Flatten comments object to array with pageKey
@@ -77,7 +81,7 @@ export default function ProjectViewer({ project, onBack }) {
     } finally {
       setSaving(false)
     }
-  }, [project.id])
+  }, [project?.id])
 
   useEffect(() => {
     // Debounce save
@@ -318,6 +322,18 @@ export default function ProjectViewer({ project, onBack }) {
     await navigator.clipboard.writeText(shareUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Safety check - show loading if project is not loaded
+  if (!project || !project.pages || project.pages.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading project...</p>
+        </div>
+      </div>
+    )
   }
 
   const viewportWidth = VIEWPORTS[viewport].width
