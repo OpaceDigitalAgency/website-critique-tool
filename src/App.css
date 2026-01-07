@@ -133,3 +133,10 @@
   opacity: 0.8;
   border-style: dashed;
 }
+
+html.viewer-mode,
+body.viewer-mode,
+#root.viewer-mode {
+  height: 100%;
+  overflow: hidden;
+}
