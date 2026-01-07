@@ -239,8 +239,12 @@ function App() {
     )
   }
 
+  const appClassName = currentView === 'viewer'
+    ? 'h-screen overflow-hidden bg-gray-50'
+    : 'min-h-screen bg-gray-50'
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={appClassName}>
       {error && (
         <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
           <p>{error}</p>

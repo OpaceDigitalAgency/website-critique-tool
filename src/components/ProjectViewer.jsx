@@ -1353,7 +1353,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
     : 0
 
   return (
-    <div className="h-screen flex flex-col bg-neutral-50">
+    <div className="h-full flex flex-col bg-neutral-50">
       {/* Main App Header - same as Dashboard */}
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
         <div className="max-w-full mx-auto px-6 py-3">
@@ -1570,8 +1570,8 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
       </div>
 
       {/* Main Content Area - Preview + Comments Panel */}
-      <div className="flex-1 flex overflow-hidden">
-        <div className={`flex-1 bg-neutral-100 overflow-auto ${viewportWidth !== '100%' ? 'flex justify-center' : ''}`}>
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        <div className={`flex-1 min-h-0 bg-neutral-100 overflow-auto ${viewportWidth !== '100%' ? 'flex justify-center' : ''}`}>
           <div
             className="bg-white relative flex-shrink-0"
             style={{
@@ -1747,7 +1747,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
           </div>
         </div>
 
-        <div className="w-80 min-w-[280px] flex-shrink-0 bg-white border-l overflow-y-auto">
+        <div className="w-80 min-w-[280px] min-h-0 flex-shrink-0 bg-white border-l overflow-y-auto">
           <div className="p-4 pb-16">
             <div className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
               <div className="flex items-start justify-between gap-2">
