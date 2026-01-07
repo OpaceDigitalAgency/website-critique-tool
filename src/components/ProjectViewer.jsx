@@ -48,6 +48,12 @@ export default function ProjectViewer({ project, onBack }) {
   const commentsRef = useRef(comments)
   const currentPageDataRef = useRef(currentPageData)
 
+  // Reset page/viewport when switching projects
+  useEffect(() => {
+    setCurrentPage(0)
+    setViewport('desktop')
+  }, [project?.id])
+
   // Load comments from cloud API
   useEffect(() => {
     if (!project?.id) return
@@ -898,7 +904,7 @@ export default function ProjectViewer({ project, onBack }) {
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
         <div className="max-w-full mx-auto px-6 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <a href="/" className="flex items-center gap-3">
               <img
                 src="/annotate-by-opace-small.png"
                 alt="Annotate by Opace logo"
@@ -908,7 +914,7 @@ export default function ProjectViewer({ project, onBack }) {
                 <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
                 <p className="text-xs text-neutral-500">The Visual Feedback &amp; Website Critique Tool</p>
               </div>
-            </div>
+            </a>
             <div className="flex items-center gap-3">
               <input
                 type="text"
@@ -1032,7 +1038,7 @@ export default function ProjectViewer({ project, onBack }) {
               })}
             </div>
 
-            <div className="flex-1 flex gap-2 overflow-x-auto">
+            <div className="flex-1 flex flex-wrap gap-2 overflow-x-auto">
               {project.pages.map((page, index) => (
                 <button
                   key={index}
