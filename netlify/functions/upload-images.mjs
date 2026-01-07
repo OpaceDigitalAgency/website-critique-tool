@@ -55,6 +55,8 @@ export default async (req) => {
     const projectName = formData.get("name") || "Untitled Project";
     const clientName = formData.get("clientName") || "";
     const description = formData.get("description") || "";
+    const providedProjectId = formData.get("projectId");
+    const isFinal = formData.get("isFinal") === "true";
     const assignmentsRaw = formData.get("assignments");
 
     if (!assignmentsRaw) {
@@ -87,12 +89,45 @@ export default async (req) => {
       });
     }
 
-    const projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const projectsStore = getStore("projects");
     const assetsStore = getStore("assets");
 
-    const pagesMap = new Map();
-    const assetKeys = [];
+    let project = null;
+    let projectId = providedProjectId;
+
+    if (projectId) {
+      project = await projectsStore.get(projectId, { type: "json" });
+      if (!project) {
+        return new Response(JSON.stringify({ error: "Project not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+    } else {
+      projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      project = {
+        id: projectId,
+        name: projectName,
+        clientName: clientName,
+        description: description,
+        createdAt: new Date().toISOString(),
+        lastModified: new Date().toISOString(),
+        type: "images",
+        pages: [],
+        assetKeys: [],
+      };
+    }
+
+    const pagesMap = new Map(
+      (project.pages || []).map((page) => [
+        page.path,
+        {
+          ...page,
+          variants: { ...(page.variants || {}) },
+        },
+      ])
+    );
+    const assetKeys = new Set(project.assetKeys || []);
 
     for (const assignment of assignments) {
       const pageName = (assignment.pageName || "Untitled Page").trim();
@@ -127,17 +162,18 @@ export default async (req) => {
         metadata: { contentType },
       });
 
-      assetKeys.push(assetKey);
+      assetKeys.add(assetKey);
 
-      if (!pagesMap.has(slug)) {
-        pagesMap.set(slug, {
+      const pagePath = `images/${slug}`;
+      if (!pagesMap.has(pagePath)) {
+        pagesMap.set(pagePath, {
           name: pageName,
-          path: `images/${slug}`,
+          path: pagePath,
           variants: {},
         });
       }
 
-      const pageEntry = pagesMap.get(slug);
+      const pageEntry = pagesMap.get(pagePath);
       pageEntry.variants[viewport] = {
         path: assetPath,
         fileName: fileName,
@@ -146,47 +182,56 @@ export default async (req) => {
 
     const pages = Array.from(pagesMap.values());
 
-    const project = {
-      id: projectId,
-      name: projectName,
-      clientName: clientName,
-      description: description,
-      createdAt: new Date().toISOString(),
+    project = {
+      ...project,
+      name: project.name || projectName,
+      clientName: project.clientName || clientName,
+      description: project.description || description,
       lastModified: new Date().toISOString(),
       type: "images",
       pages: pages,
-      assetKeys: assetKeys,
+      assetKeys: Array.from(assetKeys),
     };
 
     await projectsStore.set(projectId, JSON.stringify(project), {
       metadata: { contentType: "application/json" },
     });
 
-    let projectsList = [];
-    try {
-      const existingList = await projectsStore.get("_list", { type: "json" });
-      if (existingList) projectsList = existingList;
-    } catch (e) {
-      // No existing list.
+    if (isFinal || !providedProjectId) {
+      let projectsList = [];
+      try {
+        const existingList = await projectsStore.get("_list", { type: "json" });
+        if (existingList) projectsList = existingList;
+      } catch (e) {
+        // No existing list.
+      }
+
+      const existingIndex = projectsList.findIndex((item) => item.id === projectId);
+      const listEntry = {
+        id: projectId,
+        name: project.name,
+        clientName: project.clientName,
+        createdAt: project.createdAt,
+        pageCount: pages.length,
+        type: "images",
+      };
+
+      if (existingIndex >= 0) {
+        projectsList[existingIndex] = listEntry;
+      } else {
+        projectsList.push(listEntry);
+      }
+
+      await projectsStore.set("_list", JSON.stringify(projectsList), {
+        metadata: { contentType: "application/json" },
+      });
     }
-
-    projectsList.push({
-      id: projectId,
-      name: projectName,
-      clientName: clientName,
-      createdAt: project.createdAt,
-      pageCount: pages.length,
-      type: "images",
-    });
-
-    await projectsStore.set("_list", JSON.stringify(projectsList), {
-      metadata: { contentType: "application/json" },
-    });
 
     return new Response(
       JSON.stringify({
         success: true,
         project: project,
+        projectId: projectId,
         shareUrl: `/review/${projectId}`,
       }),
       {

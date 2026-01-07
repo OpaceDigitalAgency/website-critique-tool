@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
 // API version for cache busting
-const API_VERSION = "2.1.0";
+const API_VERSION = "2.1.1";
 
 export default async (req, context) => {
   const corsHeaders = {
@@ -14,11 +14,14 @@ export default async (req, context) => {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  let projectId = 'unknown';
+  let assetPath = 'unknown';
+
   try {
     const url = new URL(req.url);
     // Extract projectId and path from URL: /api/asset/:projectId/*
     const pathMatch = url.pathname.match(/\/api\/asset\/([^\/]+)\/(.+)/);
-    
+
     if (!pathMatch) {
       return new Response(JSON.stringify({ error: "Invalid asset path" }), {
         status: 400,
@@ -26,8 +29,8 @@ export default async (req, context) => {
       });
     }
 
-    const projectId = pathMatch[1];
-    let assetPath = pathMatch[2];
+    projectId = pathMatch[1];
+    assetPath = pathMatch[2];
 
     try {
       assetPath = decodeURIComponent(assetPath);

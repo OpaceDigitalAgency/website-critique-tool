@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.1.0';
+const API_VERSION = '2.1.1';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -66,45 +66,60 @@ export async function uploadProject(file, metadata, onProgress) {
  * @returns {Promise<Object>} - Created project data
  */
 export async function uploadImages(assignments, metadata) {
-  const formData = new FormData();
-  formData.append('name', metadata.name || 'Untitled Project');
-  formData.append('clientName', metadata.clientName || '');
-  formData.append('description', metadata.description || '');
+  const BATCH_SIZE = 1;
+  let projectId = null;
+  let finalResponse = null;
 
-  const payload = assignments.map((assignment, index) => {
-    const field = `file_${index}`;
-    formData.append(field, assignment.file, assignment.file.name);
-    return {
-      id: assignment.id,
-      pageName: assignment.pageName,
-      viewport: assignment.viewport,
-      fileField: field,
-      originalName: assignment.file.name,
-    };
-  });
-
-  formData.append('assignments', JSON.stringify(payload));
-
-  const response = await fetch(`${API_BASE}/upload-images?v=${API_VERSION}`, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    let errorMessage = 'Upload failed';
-    if (errorText) {
-      try {
-        const parsed = JSON.parse(errorText);
-        errorMessage = parsed.error || errorMessage;
-      } catch (err) {
-        errorMessage = errorText;
-      }
+  for (let i = 0; i < assignments.length; i += BATCH_SIZE) {
+    const batch = assignments.slice(i, i + BATCH_SIZE);
+    const formData = new FormData();
+    formData.append('name', metadata.name || 'Untitled Project');
+    formData.append('clientName', metadata.clientName || '');
+    formData.append('description', metadata.description || '');
+    if (projectId) {
+      formData.append('projectId', projectId);
     }
-    throw new Error(errorMessage);
+    formData.append('isFinal', i + BATCH_SIZE >= assignments.length ? 'true' : 'false');
+
+    const payload = batch.map((assignment, index) => {
+      const field = `file_${i + index}`;
+      formData.append(field, assignment.file, assignment.file.name);
+      return {
+        id: assignment.id,
+        pageName: assignment.pageName,
+        viewport: assignment.viewport,
+        fileField: field,
+        originalName: assignment.file.name,
+      };
+    });
+
+    formData.append('assignments', JSON.stringify(payload));
+
+    const response = await fetch(`${API_BASE}/upload-images?v=${API_VERSION}`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      let errorMessage = 'Upload failed';
+      if (errorText) {
+        try {
+          const parsed = JSON.parse(errorText);
+          errorMessage = parsed.error || errorMessage;
+        } catch (err) {
+          errorMessage = errorText;
+        }
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    projectId = data.projectId || data.project?.id || projectId;
+    finalResponse = data;
   }
 
-  return response.json();
+  return finalResponse;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
 // API version for cache busting
-const API_VERSION = "2.1.0";
+const API_VERSION = "2.1.1";
 
 export default async (req, context) => {
   const corsHeaders = {

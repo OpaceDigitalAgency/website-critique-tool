@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.1.0'
+const COMPONENT_VERSION = '2.1.1'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -103,6 +103,17 @@ export default function ProjectViewer({ project, onBack }) {
 
   const currentPageData = project.pages[currentPage]
   const isImageProject = project.type === 'images' || Boolean(currentPageData?.variants)
+
+  useEffect(() => {
+    if (!isImageProject || !currentPageData?.variants) return
+    const available = ['desktop', 'tablet', 'mobile'].filter(
+      (key) => currentPageData.variants[key]
+    )
+    if (available.length === 0) return
+    if (!available.includes(viewport)) {
+      setViewport(available[0])
+    }
+  }, [currentPageData, isImageProject, viewport])
 
   const handleOverlayClick = (e) => {
     if (!commentMode) return
@@ -278,6 +289,13 @@ export default function ProjectViewer({ project, onBack }) {
   }
 
   const viewportWidth = VIEWPORTS[viewport].width
+  const availableViewports = (() => {
+    if (!isImageProject) {
+      return Object.keys(VIEWPORTS)
+    }
+    if (!currentPageData?.variants) return ['desktop']
+    return ['desktop', 'tablet', 'mobile'].filter((key) => currentPageData.variants[key])
+  })()
 
   return (
     <div className="h-screen flex flex-col bg-gray-100">
@@ -350,20 +368,23 @@ export default function ProjectViewer({ project, onBack }) {
 
           <div className="flex items-center gap-4">
             <div className="flex gap-2">
-              {Object.entries(VIEWPORTS).map(([key, { label, icon: Icon }]) => (
-                <button
-                  key={key}
-                  onClick={() => setViewport(key)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
-                    viewport === key
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {label}
-                </button>
-              ))}
+              {availableViewports.map((key) => {
+                const { label, icon: Icon } = VIEWPORTS[key]
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setViewport(key)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
+                      viewport === key
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {label}
+                  </button>
+                )
+              })}
             </div>
 
             <div className="flex-1 flex gap-2 overflow-x-auto">
