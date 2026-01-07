@@ -19,6 +19,14 @@ const slugify = (value) => {
     .replace(/(^-|-$)/g, "");
 };
 
+const titleCase = (value) => {
+  return value
+    .split(/[-\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};
+
 const getExtension = (fileName, contentType) => {
   if (fileName && fileName.includes(".")) {
     return fileName.split(".").pop().toLowerCase();
@@ -98,10 +106,7 @@ export default async (req) => {
     if (projectId) {
       project = await projectsStore.get(projectId, { type: "json" });
       if (!project) {
-        return new Response(JSON.stringify({ error: "Project not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-        });
+        project = null;
       }
     } else {
       projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -118,21 +123,23 @@ export default async (req) => {
       };
     }
 
-    const pagesMap = new Map(
-      (project.pages || []).map((page) => [
-        page.path,
-        {
-          ...page,
-          variants: { ...(page.variants || {}) },
-        },
-      ])
-    );
-    const assetKeys = new Set(project.assetKeys || []);
+    const pageNameBySlug = new Map();
+    if (project?.pages?.length) {
+      project.pages.forEach((page) => {
+        const slug = page.path?.split("/").pop();
+        if (slug && page.name) {
+          pageNameBySlug.set(slug, page.name);
+        }
+      });
+    }
 
     for (const assignment of assignments) {
       const pageName = (assignment.pageName || "Untitled Page").trim();
       const slug = slugify(pageName) || "page";
       const viewport = (assignment.viewport || "desktop").toLowerCase();
+      if (!pageNameBySlug.has(slug)) {
+        pageNameBySlug.set(slug, pageName);
+      }
 
       if (!VIEWPORTS.has(viewport)) {
         return new Response(JSON.stringify({ error: `Invalid viewport: ${viewport}` }), {
@@ -161,36 +168,49 @@ export default async (req) => {
       await assetsStore.set(assetKey, new Uint8Array(arrayBuffer), {
         metadata: { contentType },
       });
+    }
 
-      assetKeys.add(assetKey);
+    const { blobs } = await assetsStore.list({ prefix: projectId });
+    const assetKeys = blobs.map((blob) => blob.key);
+    const pagesMap = new Map();
+
+    blobs.forEach((blob) => {
+      const assetPath = blob.key.replace(`${projectId}/`, "");
+      const match = assetPath.match(/^images\/([^/]+)\/([^/.]+)\.[a-z0-9]+$/i);
+      if (!match) return;
+      const slug = match[1];
+      const viewport = match[2].toLowerCase();
+      if (!VIEWPORTS.has(viewport)) return;
 
       const pagePath = `images/${slug}`;
       if (!pagesMap.has(pagePath)) {
         pagesMap.set(pagePath, {
-          name: pageName,
+          name: pageNameBySlug.get(slug) || titleCase(slug),
           path: pagePath,
           variants: {},
         });
       }
 
-      const pageEntry = pagesMap.get(pagePath);
-      pageEntry.variants[viewport] = {
+      const fileName = assetPath.split("/").pop();
+      pagesMap.get(pagePath).variants[viewport] = {
         path: assetPath,
         fileName: fileName,
       };
-    }
+    });
 
     const pages = Array.from(pagesMap.values());
 
     project = {
-      ...project,
-      name: project.name || projectName,
-      clientName: project.clientName || clientName,
-      description: project.description || description,
+      ...(project || {}),
+      id: projectId,
+      name: project?.name || projectName,
+      clientName: project?.clientName || clientName,
+      description: project?.description || description,
+      createdAt: project?.createdAt || new Date().toISOString(),
       lastModified: new Date().toISOString(),
       type: "images",
       pages: pages,
-      assetKeys: Array.from(assetKeys),
+      assetKeys: assetKeys,
     };
 
     await projectsStore.set(projectId, JSON.stringify(project), {
