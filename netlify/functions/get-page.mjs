@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
 // API version for cache busting
-const API_VERSION = "2.0.9";
+const API_VERSION = "2.1.0";
 
 export default async (req, context) => {
   const corsHeaders = {
@@ -86,6 +86,13 @@ export default async (req, context) => {
       const [pathOnly, suffix = ''] = rawPath.split(/([?#].*)/);
       const cleanPath = pathOnly.replace(/^\.\//, '').replace(/^\//, '');
 
+      // Check if it's an HTML page first - if so, return the page URL
+      if (cleanPath.endsWith('.html') || cleanPath.endsWith('.htm')) {
+        const fullPath = baseDir ? `${baseDir}/${cleanPath}`.replace(/\/+/g, '/') : cleanPath;
+        return `${baseUrl}/api/page/${projectId}/${encodeURIComponent(fullPath)}${suffix}`;
+      }
+
+      // For non-HTML assets, check the asset map
       if (baseDir) {
         const withBaseDir = `${baseDir}/${cleanPath}`.replace(/\/+/g, '/');
         if (assetMap.has(withBaseDir)) {
@@ -100,11 +107,6 @@ export default async (req, context) => {
       const fileName = cleanPath.split('/').pop();
       if (fileName && assetMap.has(fileName)) {
         return `${assetMap.get(fileName)}${suffix}`;
-      }
-
-      // Check if it's an HTML page - if so, return the page URL
-      if (cleanPath.endsWith('.html')) {
-        return `${baseUrl}/api/page/${projectId}/${encodeURIComponent(baseDir ? `${baseDir}/${cleanPath}` : cleanPath)}`;
       }
 
       return null;

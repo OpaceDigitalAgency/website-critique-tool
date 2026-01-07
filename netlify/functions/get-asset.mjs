@@ -1,5 +1,8 @@
 import { getStore } from "@netlify/blobs";
 
+// API version for cache busting
+const API_VERSION = "2.1.0";
+
 export default async (req, context) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -35,18 +38,21 @@ export default async (req, context) => {
       });
     }
     const assetKey = `${projectId}/${assetPath}`;
+    console.log(`[GET-ASSET] Fetching asset: ${assetKey}`);
 
     const assetsStore = getStore("assets");
     const { data, metadata } = await assetsStore.getWithMetadata(assetKey, { type: "arrayBuffer" });
 
     if (!data) {
-      return new Response(JSON.stringify({ error: "Asset not found" }), {
+      console.error(`[GET-ASSET] Asset not found: ${assetKey}`);
+      return new Response(JSON.stringify({ error: "Asset not found", assetKey }), {
         status: 404,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
 
     const contentType = metadata?.contentType || "application/octet-stream";
+    console.log(`[GET-ASSET] Serving asset: ${assetKey}, contentType: ${contentType}, size: ${data.byteLength}`);
 
     return new Response(data, {
       status: 200,
@@ -58,8 +64,14 @@ export default async (req, context) => {
     });
 
   } catch (error) {
-    console.error("Get asset error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error("[GET-ASSET] Error:", error);
+    console.error("[GET-ASSET] Stack:", error.stack);
+    return new Response(JSON.stringify({
+      error: error.message,
+      stack: error.stack,
+      projectId,
+      assetPath: assetPath || 'undefined'
+    }), {
       status: 500,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });

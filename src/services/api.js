@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.0.9';
+const API_VERSION = '2.1.0';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -91,8 +91,17 @@ export async function uploadImages(assignments, metadata) {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(error.error || 'Upload failed');
+    const errorText = await response.text().catch(() => '');
+    let errorMessage = 'Upload failed';
+    if (errorText) {
+      try {
+        const parsed = JSON.parse(errorText);
+        errorMessage = parsed.error || errorMessage;
+      } catch (err) {
+        errorMessage = errorText;
+      }
+    }
+    throw new Error(errorMessage);
   }
 
   return response.json();
