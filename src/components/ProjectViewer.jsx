@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.4.0'
+const COMPONENT_VERSION = '2.5.0'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -403,17 +403,11 @@ export default function ProjectViewer({ project, onBack }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50">
-      <div className="bg-white border-b border-neutral-200 sticky top-0 z-40">
-        <div className="max-w-full mx-auto px-6 py-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={onBack}
-                className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
-              >
-                <ArrowLeft className="w-5 h-5" />
-                Back
-              </button>
+      {/* Main App Header - same as Dashboard */}
+      <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
+        <div className="max-w-full mx-auto px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
               <img
                 src="/annotate-by-opace-small.png"
                 alt="Annotate by Opace logo"
@@ -421,9 +415,37 @@ export default function ProjectViewer({ project, onBack }) {
               />
               <div>
                 <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
-                <p className="text-xs text-neutral-500">{project.name}{project.clientName ? ` - ${project.clientName}` : ''}</p>
+                <p className="text-xs text-neutral-500">The Visual Feedback &amp; Website Critique Tool</p>
               </div>
             </div>
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                placeholder="Search projects..."
+                className="pl-10 pr-4 py-2 bg-neutral-100 border border-neutral-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                onClick={onBack}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+              >
+                + New Project
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Action Bar - Back, Share, Add Comments, Export PDF */}
+      <div className="bg-white border-b border-neutral-200">
+        <div className="max-w-full mx-auto px-6 py-3">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={onBack}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              Back
+            </button>
 
             <div className="flex items-center gap-3">
               {saving && (
@@ -472,7 +494,12 @@ export default function ProjectViewer({ project, onBack }) {
               </button>
             </div>
           </div>
+        </div>
+      </div>
 
+      {/* Viewport and Page Tabs Bar */}
+      <div className="bg-white border-b border-neutral-200">
+        <div className="max-w-full mx-auto px-6 py-3">
           <div className="flex items-center gap-4">
             <div className="flex gap-2">
               {availableViewports.map((key) => {
@@ -481,7 +508,7 @@ export default function ProjectViewer({ project, onBack }) {
                   <button
                     key={key}
                     onClick={() => setViewport(key)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm ${
                       viewport === key
                         ? 'bg-indigo-600 text-white'
                         : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
@@ -499,9 +526,9 @@ export default function ProjectViewer({ project, onBack }) {
                 <button
                   key={index}
                   onClick={() => setCurrentPage(index)}
-                  className={`px-3 py-2 rounded-lg whitespace-nowrap transition-colors ${
+                  className={`px-3 py-2 rounded-lg whitespace-nowrap transition-colors text-sm ${
                     currentPage === index
-                      ? 'bg-indigo-600 text-white'
+                      ? 'bg-neutral-800 text-white'
                       : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
                   }`}
                 >
@@ -513,12 +540,13 @@ export default function ProjectViewer({ project, onBack }) {
         </div>
       </div>
 
+      {/* Main Content Area - Preview + Comments Panel */}
       <div className="flex-1 flex">
-        <div className="flex-1 flex justify-center items-start bg-neutral-100">
+        <div className={`flex-1 bg-neutral-100 ${viewportWidth !== '100%' ? 'flex justify-center' : ''}`}>
           <div
-            className="bg-white relative w-full"
+            className="bg-white relative"
             style={{
-              maxWidth: viewportWidth === '100%' ? '100%' : `${viewportWidth}px`,
+              width: viewportWidth === '100%' ? '100%' : `${viewportWidth}px`,
               minHeight: '100%'
             }}
           >
