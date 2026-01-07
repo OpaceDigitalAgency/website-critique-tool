@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.8.0'
+const COMPONENT_VERSION = '2.8.1'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -499,7 +499,7 @@ export default function ProjectViewer({ project, onBack }) {
 
       // For image projects, use the image directly
       if (isImageProject && page.variants) {
-        const variant = page.variants.desktop || page.variants.tablet || page.variants.mobile
+        const variant = page.variants[viewport] || page.variants.desktop || page.variants.tablet || page.variants.mobile
         if (variant?.url) {
           try {
             // Create a canvas with the image and draw annotations on it
@@ -584,12 +584,88 @@ export default function ProjectViewer({ project, onBack }) {
         }
       }
 
+      // For HTML projects, try to capture using html2canvas
+      if (!screenshotAdded && !isImageProject && iframeRef.current) {
+        try {
+          // Try to capture the iframe container with overlay
+          const iframeContainer = iframeRef.current.parentElement
+          if (iframeContainer) {
+            const canvas = await html2canvas(iframeContainer, {
+              useCORS: true,
+              allowTaint: true,
+              scale: 0.5, // Lower scale for smaller file size
+              logging: false,
+              ignoreElements: (element) => {
+                // Ignore the comment input modal if visible
+                return element.classList?.contains('fixed')
+              }
+            })
+
+            // Draw annotations on top of captured canvas
+            const ctx = canvas.getContext('2d')
+            const canvasScale = canvas.width / iframeContainer.offsetWidth
+
+            pageComments.forEach((comment, idx) => {
+              const scaledX = comment.x * canvasScale
+              const scaledY = comment.y * canvasScale
+
+              if (comment.isRectangle && comment.width && comment.height) {
+                ctx.strokeStyle = '#3b82f6'
+                ctx.lineWidth = 3 * canvasScale
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'
+                ctx.beginPath()
+                ctx.rect(scaledX, scaledY, comment.width * canvasScale, comment.height * canvasScale)
+                ctx.fill()
+                ctx.stroke()
+
+                const badgeSize = 14 * canvasScale
+                ctx.fillStyle = '#3b82f6'
+                ctx.beginPath()
+                ctx.arc(scaledX - 8 * canvasScale, scaledY - 8 * canvasScale, badgeSize, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.fillStyle = 'white'
+                ctx.font = `bold ${12 * canvasScale}px Arial`
+                ctx.textAlign = 'center'
+                ctx.textBaseline = 'middle'
+                ctx.fillText(String(idx + 1), scaledX - 8 * canvasScale, scaledY - 8 * canvasScale)
+              } else {
+                const pinSize = 16 * canvasScale
+                ctx.fillStyle = '#3b82f6'
+                ctx.beginPath()
+                ctx.arc(scaledX, scaledY, pinSize, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.fillStyle = 'white'
+                ctx.font = `bold ${12 * canvasScale}px Arial`
+                ctx.textAlign = 'center'
+                ctx.textBaseline = 'middle'
+                ctx.fillText(String(idx + 1), scaledX, scaledY)
+              }
+            })
+
+            const imgData = canvas.toDataURL('image/jpeg', 0.7)
+            const imgAspect = canvas.height / canvas.width
+            const pdfImgWidth = contentWidth
+            const pdfImgHeight = pdfImgWidth * imgAspect
+
+            const maxImgHeight = pageHeight - yPosition - 30
+            const finalImgHeight = Math.min(pdfImgHeight, maxImgHeight)
+            const finalImgWidth = finalImgHeight / imgAspect
+
+            pdf.addImage(imgData, 'JPEG', margin, yPosition, finalImgWidth, finalImgHeight)
+            yPosition += finalImgHeight + 10
+            screenshotAdded = true
+          }
+        } catch (err) {
+          console.error('Failed to capture HTML page:', err)
+        }
+      }
+
       // Add comments list
       if (!screenshotAdded) {
         // Add a note that screenshot couldn't be captured
         pdf.setFontSize(10)
         pdf.setTextColor(120, 120, 120)
-        pdf.text('[Screenshot not available for HTML pages - see annotations below]', margin, yPosition)
+        pdf.text('[Screenshot not available - see annotations below]', margin, yPosition)
         pdf.setTextColor(0)
         yPosition += 10
       }
@@ -631,9 +707,9 @@ export default function ProjectViewer({ project, onBack }) {
         pdf.setTextColor(100, 100, 100)
         let locationDesc = ''
         if (comment.isRectangle && comment.width && comment.height) {
-          locationDesc = `📍 Highlighted area at position (${Math.round(comment.x)}, ${Math.round(comment.y)}) - ${Math.round(comment.width)}×${Math.round(comment.height)} pixels`
+          locationDesc = `Location: Highlighted area at (${Math.round(comment.x)}, ${Math.round(comment.y)}) - ${Math.round(comment.width)}x${Math.round(comment.height)} px`
         } else {
-          locationDesc = `📍 Point marker at position (${Math.round(comment.x)}, ${Math.round(comment.y)})`
+          locationDesc = `Location: Point marker at (${Math.round(comment.x)}, ${Math.round(comment.y)})`
         }
         pdf.text(locationDesc, margin + 12, yPosition)
         pdf.setTextColor(0)
