@@ -29,6 +29,7 @@ export default async (req, context) => {
     }
 
     const projectsStore = getStore("projects");
+    const assetsStore = getStore("assets");
 
     // Get and update project
     const projectData = await projectsStore.get(projectId, { type: "json" });
@@ -38,6 +39,24 @@ export default async (req, context) => {
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
+
+    // Build final asset list and pages from uploaded assets
+    const prefix = `${projectId}/`;
+    const { blobs } = await assetsStore.list({ prefix });
+    const assetKeys = blobs.map(blob => blob.key);
+    const pages = blobs
+      .filter(blob => /\.(html?|htm)$/i.test(blob.key))
+      .map(blob => {
+        const path = blob.key.replace(prefix, "");
+        return {
+          name: path.split("/").pop(),
+          path,
+          assetKey: blob.key,
+        };
+      });
+
+    projectData.assetKeys = assetKeys;
+    projectData.pages = pages;
 
     // Mark as complete
     projectData.status = "ready";

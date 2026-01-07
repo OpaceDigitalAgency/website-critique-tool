@@ -17,19 +17,6 @@ function shouldSkipFile(path) {
   );
 }
 
-// Helper to check if HTML has meaningful body content
-function hasBodyContent(html) {
-  if (!html || typeof html !== 'string') return false;
-
-  // Just check if there's a body tag with some content
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  if (!bodyMatch) return false;
-
-  // Remove whitespace and check if there's anything left
-  const bodyContent = bodyMatch[1].trim();
-  return bodyContent.length > 0;
-}
-
 export default async (req, context) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -102,21 +89,14 @@ export default async (req, context) => {
       if (path.toLowerCase().endsWith(".html")) {
         const content = await zipEntry.async("text");
 
-        // Only add pages with meaningful body content
-        const hasContent = hasBodyContent(content);
-        console.log(`[UPLOAD] HTML file: ${path}, hasContent: ${hasContent}, size: ${content.length}`);
-
-        if (hasContent) {
-          await assetsStore.set(assetKey, content, { metadata: { contentType: "text/html" } });
-          pages.push({
-            name: fileName,
-            path: path,
-            assetKey: assetKey,
-          });
-          assetKeys.push(assetKey);
-        } else {
-          console.log(`[UPLOAD] Skipping ${path} - no body content detected`);
-        }
+        console.log(`[UPLOAD] HTML file: ${path}, size: ${content.length}`);
+        await assetsStore.set(assetKey, content, { metadata: { contentType: "text/html" } });
+        pages.push({
+          name: fileName,
+          path: path,
+          assetKey: assetKey,
+        });
+        assetKeys.push(assetKey);
       } else if (path.match(/\.(css|js|jpg|jpeg|png|gif|svg|webp|ico|woff|woff2|ttf|eot)$/i)) {
         const ext = path.split(".").pop().toLowerCase();
         console.log(`[UPLOAD] Asset file detected: ${path}, ext: ${ext}`);

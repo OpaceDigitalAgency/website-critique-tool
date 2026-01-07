@@ -3,19 +3,6 @@ import { getStore } from "@netlify/blobs";
 // API version for cache busting
 const API_VERSION = "2.0.4";
 
-// Helper to check if HTML has meaningful body content
-function hasBodyContent(html) {
-  if (!html || typeof html !== 'string') return false;
-
-  // Just check if there's a body tag with some content
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  if (!bodyMatch) return false;
-
-  // Remove whitespace and check if there's anything left
-  const bodyContent = bodyMatch[1].trim();
-  return bodyContent.length > 0;
-}
-
 export default async (req, context) => {
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -142,11 +129,6 @@ export default async (req, context) => {
           try {
             if (page.assetKey) {
               let content = await assetsStore.get(page.assetKey, { type: "text" });
-              // Skip pages without meaningful content
-              if (!hasBodyContent(content)) {
-                return null;
-              }
-
               // Rewrite asset paths to absolute URLs
               content = rewriteHtmlAssetPaths(content, page.path, projectData.assetKeys, projectId, baseUrl);
 
@@ -156,11 +138,6 @@ export default async (req, context) => {
                 content: content || "",
               };
             }
-            // Skip pages without meaningful content
-            if (!hasBodyContent(page.content)) {
-              return null;
-            }
-
             // Rewrite asset paths to absolute URLs
             let content = rewriteHtmlAssetPaths(page.content, page.path, projectData.assetKeys, projectId, baseUrl);
 
