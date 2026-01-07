@@ -1339,7 +1339,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
     : 0
 
   return (
-    <div className="min-h-screen flex flex-col bg-neutral-50">
+    <div className="h-screen flex flex-col bg-neutral-50">
       {/* Main App Header - same as Dashboard */}
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
         <div className="max-w-full mx-auto px-6 py-3">
@@ -1390,164 +1390,166 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
         </div>
       </header>
 
-      {/* Action Bar - Back, Share, Add Comments, Export PDF */}
-      <div className="bg-white border-b border-neutral-200">
-        <div className="max-w-full mx-auto px-6 py-3">
-          <div className={`flex items-center ${isClientView ? 'justify-end' : 'justify-between'}`}>
-            {!isClientView && (
-              <button
-                onClick={onBack}
-                title="Back to projects"
-                className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
-              >
-                <ArrowLeft className="w-5 h-5" />
-                Back
-              </button>
-            )}
-
-            <div className="flex items-center gap-3">
-              {saving && (
-                <span className="text-sm text-neutral-500 flex items-center gap-1">
-                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-neutral-500"></div>
-                  Saving...
-                </span>
-              )}
-
-              {approvalSaving && (
-                <span className="text-sm text-neutral-500 flex items-center gap-1">
-                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-neutral-500"></div>
-                  Recording approval...
-                </span>
-              )}
-
-              {canUndo && (
+      <div className="sticky top-[64px] z-40">
+        {/* Action Bar - Back, Share, Add Comments, Export PDF */}
+        <div className="bg-white border-b border-neutral-200">
+          <div className="max-w-full mx-auto px-6 py-3">
+            <div className={`flex items-center ${isClientView ? 'justify-end' : 'justify-between'}`}>
+              {!isClientView && (
                 <button
-                  onClick={handleUndo}
-                  className="flex items-center gap-2 px-3 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
-                  title="Undo last action"
+                  onClick={onBack}
+                  title="Back to projects"
+                  className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
                 >
-                  <Undo2 className="w-4 h-4" />
-                  Undo
+                  <ArrowLeft className="w-5 h-5" />
+                  Back
                 </button>
               )}
 
-              <button
-                onClick={copyShareUrl}
-                className="flex items-center gap-2 px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
-                title="Copy client share link"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-4 h-4 text-green-600" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Link className="w-4 h-4" />
-                    Share
-                  </>
+              <div className="flex items-center gap-3">
+                {saving && (
+                  <span className="text-sm text-neutral-500 flex items-center gap-1">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-neutral-500"></div>
+                    Saving...
+                  </span>
                 )}
-              </button>
 
-              <button
-                onClick={() => setCommentMode(!commentMode)}
-                title={commentMode ? 'Exit comment mode' : 'Add feedback by clicking or dragging on the page'}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                  commentMode
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-yellow-500 text-white hover:bg-yellow-600'
-                }`}
-              >
-                <MessageSquare className="w-4 h-4" />
-                {commentMode ? 'Exit Comment Mode' : 'Add Comments'}
-              </button>
+                {approvalSaving && (
+                  <span className="text-sm text-neutral-500 flex items-center gap-1">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-neutral-500"></div>
+                    Recording approval...
+                  </span>
+                )}
 
-              <button
-                onClick={() => requestApproval(currentPageKey, approvalViewportsForCurrentPage)}
-                disabled={currentPageApproval.approved}
-                title={
-                  currentPageApproval.approved
-                    ? `Approved ${formatTimestamp(currentPageApproval.latestApproval?.approvedAt)}`
-                    : `Approve this page (${formatViewportList(approvalViewportsForCurrentPage)})`
-                }
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
-                  currentPageApproval.approved
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                }`}
-              >
-                <Check className="w-4 h-4" />
-                {currentPageApproval.approved ? 'Approved' : 'Approve Page'}
-              </button>
+                {canUndo && (
+                  <button
+                    onClick={handleUndo}
+                    className="flex items-center gap-2 px-3 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
+                    title="Undo last action"
+                  >
+                    <Undo2 className="w-4 h-4" />
+                    Undo
+                  </button>
+                )}
 
-              <button
-                onClick={generatePDF}
-                title="Export a PDF summary of feedback"
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                <Download className="w-4 h-4" />
-                Export PDF
-              </button>
+                <button
+                  onClick={copyShareUrl}
+                  className="flex items-center gap-2 px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
+                  title="Copy client share link"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-4 h-4 text-green-600" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Link className="w-4 h-4" />
+                      Share
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => setCommentMode(!commentMode)}
+                  title={commentMode ? 'Exit comment mode' : 'Add feedback by clicking or dragging on the page'}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    commentMode
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  {commentMode ? 'Exit Comment Mode' : 'Add Comments'}
+                </button>
+
+                <button
+                  onClick={() => requestApproval(currentPageKey, approvalViewportsForCurrentPage)}
+                  disabled={currentPageApproval.approved}
+                  title={
+                    currentPageApproval.approved
+                      ? `Approved ${formatTimestamp(currentPageApproval.latestApproval?.approvedAt)}`
+                      : `Approve this page (${formatViewportList(approvalViewportsForCurrentPage)})`
+                  }
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+                    currentPageApproval.approved
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  }`}
+                >
+                  <Check className="w-4 h-4" />
+                  {currentPageApproval.approved ? 'Approved' : 'Approve Page'}
+                </button>
+
+                <button
+                  onClick={generatePDF}
+                  title="Export a PDF summary of feedback"
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <Download className="w-4 h-4" />
+                  Export PDF
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Comment mode hint bar */}
-      {commentMode && (
-        <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-2">
-          <p className="text-sm text-yellow-800 text-center">
-            <strong>Comment Mode Active:</strong> Click to add a point marker, or click and drag to highlight an area
-          </p>
-        </div>
-      )}
+        {/* Comment mode hint bar */}
+        {commentMode && (
+          <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-2">
+            <p className="text-sm text-yellow-800 text-center">
+              <strong>Comment Mode Active:</strong> Click to add a point marker, or click and drag to highlight an area
+            </p>
+          </div>
+        )}
 
-      {/* Viewport and Page Tabs Bar */}
-      <div className="bg-white border-b border-neutral-200">
-        <div className="max-w-full mx-auto px-6 py-3">
-          <div className="flex items-center gap-4">
-            <div className="flex gap-2">
-              {availableViewports.map((key) => {
-                const { label, icon: Icon } = VIEWPORTS[key]
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setViewport(key)}
-                    title={`Switch to ${label} view`}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm ${
-                      viewport === key
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
+        {/* Viewport and Page Tabs Bar */}
+        <div className="bg-white border-b border-neutral-200">
+          <div className="max-w-full mx-auto px-6 py-3">
+            <div className="flex items-center gap-4">
+              <div className="flex gap-2">
+                {availableViewports.map((key) => {
+                  const { label, icon: Icon } = VIEWPORTS[key]
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setViewport(key)}
+                      title={`Switch to ${label} view`}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm ${
+                        viewport === key
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
 
-            <div className="flex-1 flex flex-wrap gap-2 overflow-x-auto">
-              {project.pages.map((page, index) => {
-                const { approved } = getPageApprovalStatus(page)
-                return (
-                  <button
-                    key={index}
-                    onClick={() => setCurrentPage(index)}
-                    title={`Open ${page.name}`}
-                    className={`px-3 py-2 rounded-lg whitespace-nowrap transition-colors text-sm flex items-center gap-2 ${
-                      currentPage === index
-                        ? 'bg-neutral-800 text-white'
-                        : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
-                    }`}
-                  >
-                    <span>{page.name}</span>
-                    {approved && (
-                      <Check className={`w-3 h-3 ${currentPage === index ? 'text-emerald-200' : 'text-emerald-600'}`} />
-                    )}
-                  </button>
-                )
-              })}
+              <div className="flex-1 flex flex-wrap gap-2 overflow-x-auto">
+                {project.pages.map((page, index) => {
+                  const { approved } = getPageApprovalStatus(page)
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => setCurrentPage(index)}
+                      title={`Open ${page.name}`}
+                      className={`px-3 py-2 rounded-lg whitespace-nowrap transition-colors text-sm flex items-center gap-2 ${
+                        currentPage === index
+                          ? 'bg-neutral-800 text-white'
+                          : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
+                      }`}
+                    >
+                      <span>{page.name}</span>
+                      {approved && (
+                        <Check className={`w-3 h-3 ${currentPage === index ? 'text-emerald-200' : 'text-emerald-600'}`} />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -1731,7 +1733,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
           </div>
         </div>
 
-        <div className="w-80 min-w-[280px] flex-shrink-0 bg-white border-l overflow-y-auto relative">
+        <div className="w-80 min-w-[280px] flex-shrink-0 bg-white border-l overflow-y-auto">
           <div className="p-4 pb-16">
             <div className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
               <div className="flex items-start justify-between gap-2">
@@ -1974,7 +1976,7 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
               )
             )}
           </div>
-          <div className="absolute bottom-4 right-4">
+          <div className="sticky bottom-4 mt-4 flex justify-end">
             <button
               onClick={() => setShowGuide(true)}
               title="Open the review guide"
