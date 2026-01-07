@@ -8,7 +8,7 @@ import {
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '3.1.0'
+const COMPONENT_VERSION = '3.3.0'
 
 const IMAGE_VIEWPORTS = [
   { key: 'desktop', label: 'Desktop' },
@@ -516,9 +516,21 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
         setShowUploadModal(false)
         resetForm()
       } else if (uploadType === 'url') {
-        setUploadError('URL projects coming soon.')
-        setUploading(false)
-        return
+        if (!formData.url) {
+          setUploadError('Enter a valid website URL.')
+          setUploading(false)
+          setUploadProgress('')
+          return
+        }
+        setUploadProgress('Fetching website...')
+        const result = await api.uploadUrl(formData.url, {
+          name: formData.name || 'Untitled Project',
+          clientName: formData.clientName,
+          description: formData.description,
+        })
+        onProjectCreate(result.project)
+        setShowUploadModal(false)
+        resetForm()
       }
     } catch (err) {
       console.error('Upload failed:', err)
@@ -605,7 +617,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
         </div>
       </header>
 
-      <main className="mx-auto px-6 py-8">
+      <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Upload Zone */}
         <div
           className={`mb-10 p-10 border-2 border-dashed rounded-2xl text-center

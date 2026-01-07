@@ -137,6 +137,43 @@ export async function uploadImages(assignments, metadata) {
 }
 
 /**
+ * Upload a project from a live URL
+ * @param {string} url - Website URL
+ * @param {Object} metadata - Project metadata (name, clientName, description)
+ * @returns {Promise<Object>} - Created project data
+ */
+export async function uploadUrl(url, metadata) {
+  const response = await fetch(`${API_BASE}/upload-url?v=${API_VERSION}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url,
+      name: metadata.name || 'Untitled Project',
+      clientName: metadata.clientName || '',
+      description: metadata.description || '',
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    let errorMessage = 'Upload failed';
+    if (errorText) {
+      try {
+        const parsed = JSON.parse(errorText);
+        errorMessage = parsed.error || errorMessage;
+      } catch (err) {
+        errorMessage = errorText;
+      }
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+/**
  * Direct upload for smaller files
  */
 async function uploadProjectDirect(file, metadata, onProgress) {
@@ -450,6 +487,7 @@ export function getShareUrl(projectId) {
 export default {
   uploadProject,
   uploadImages,
+  uploadUrl,
   listProjects,
   getProject,
   deleteProject,
