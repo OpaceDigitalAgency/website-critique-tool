@@ -144,9 +144,17 @@ function App() {
   }
 
   const handleProjectDelete = async (projectId) => {
+    setProjects((prev) => prev.filter((project) => project.id !== projectId))
+    if (selectedProject?.id === projectId) {
+      setSelectedProject(null)
+      setCurrentView('dashboard')
+    }
     try {
       await api.deleteProject(projectId)
       await loadProjects()
+      setTimeout(() => {
+        loadProjects()
+      }, 750)
     } catch (err) {
       console.error('Failed to delete project:', err)
       setError('Failed to delete project')
