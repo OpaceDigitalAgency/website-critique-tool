@@ -1247,9 +1247,7 @@ export default function ProjectViewer({ project, onBack }) {
       </script>
     `;
 
-    if (project.type === 'url') {
-      return { type: 'url', content: currentPageData.path }
-    } else if (project.assetKeys && project.assetKeys.length > 0) {
+    if (project.assetKeys && project.assetKeys.length > 0) {
       // Cloud-based project - use the page URL endpoint for proper navigation
       const pagePath = currentPageData.relativePath || currentPageData.path || ''
       return { type: 'url', content: api.getPageUrl(project.id, pagePath) }
