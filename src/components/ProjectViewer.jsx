@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Check, Link, Undo2, Pencil } from 'lucide-react'
+import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.9.0'
+const COMPONENT_VERSION = '2.9.1'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -42,6 +43,10 @@ export default function ProjectViewer({ project, onBack }) {
   const iframeRef = useRef(null)
   const saveTimeoutRef = useRef(null)
   const [iframeHeight, setIframeHeight] = useState('100vh')
+  // Refs for drag state to avoid stale closures
+  const dragStateRef = useRef({ isDragging: false, draggedComment: null, dragOffset: { x: 0, y: 0 } })
+  const commentsRef = useRef(comments)
+  const currentPageDataRef = useRef(currentPageData)
 
   // Load comments from cloud API
   useEffect(() => {
@@ -288,6 +293,19 @@ export default function ProjectViewer({ project, onBack }) {
     return { x, y, width, height }
   }
 
+  // Keep refs in sync
+  useEffect(() => {
+    commentsRef.current = comments
+  }, [comments])
+
+  useEffect(() => {
+    currentPageDataRef.current = currentPageData
+  }, [currentPageData])
+
+  useEffect(() => {
+    dragStateRef.current = { isDragging, draggedComment, dragOffset }
+  }, [isDragging, draggedComment, dragOffset])
+
   // Drag handlers for repositioning existing comments
   const handleCommentDragStart = useCallback((e, comment) => {
     e.stopPropagation()
@@ -308,63 +326,48 @@ export default function ProjectViewer({ project, onBack }) {
     setIsDragging(true)
   }, [])
 
-  const handleDragMove = useCallback((e) => {
-    if (!isDragging || !draggedComment || !overlayRef.current) return
-
-    const rect = overlayRef.current.getBoundingClientRect()
-    const newX = e.clientX - rect.left - dragOffset.x
-    const newY = e.clientY - rect.top - dragOffset.y
-
-    // Update the dragged comment position in real-time (without history)
-    const pageKey = currentPageData.relativePath || currentPageData.path
-    const pageComments = comments[pageKey] || []
-
-    setComments({
-      ...comments,
-      [pageKey]: pageComments.map(c => {
-        if (c.id === draggedComment.id) {
-          return { ...c, x: Math.max(0, newX), y: Math.max(0, newY) }
-        }
-        return c
-      })
-    })
-  }, [isDragging, draggedComment, dragOffset, comments, currentPageData])
-
-  const handleDragEnd = useCallback(() => {
-    if (isDragging && draggedComment) {
-      // Save the final position to history
-      const pageKey = currentPageData.relativePath || currentPageData.path
-      const currentComment = (comments[pageKey] || []).find(c => c.id === draggedComment.id)
-      if (currentComment) {
-        // We already updated the position, just need to save to history
-        // The next change will create the history entry
-      }
-    }
-    setIsDragging(false)
-    setDraggedComment(null)
-    setDragOffset({ x: 0, y: 0 })
-  }, [isDragging, draggedComment, comments, currentPageData])
-
   // Add document-level event listeners for dragging
   useEffect(() => {
-    if (isDragging) {
-      const handleMouseMove = (e) => {
-        handleDragMove(e)
-      }
+    if (!isDragging) return
 
-      const handleMouseUp = (e) => {
-        handleDragEnd()
-      }
+    const handleMouseMove = (e) => {
+      const { draggedComment, dragOffset } = dragStateRef.current
+      if (!draggedComment || !overlayRef.current) return
 
-      document.addEventListener('mousemove', handleMouseMove)
-      document.addEventListener('mouseup', handleMouseUp)
+      const rect = overlayRef.current.getBoundingClientRect()
+      const newX = e.clientX - rect.left - dragOffset.x
+      const newY = e.clientY - rect.top - dragOffset.y
 
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove)
-        document.removeEventListener('mouseup', handleMouseUp)
-      }
+      // Update the dragged comment position in real-time (without history)
+      const pageKey = currentPageDataRef.current.relativePath || currentPageDataRef.current.path
+      const currentComments = commentsRef.current
+      const pageComments = currentComments[pageKey] || []
+
+      setComments({
+        ...currentComments,
+        [pageKey]: pageComments.map(c => {
+          if (c.id === draggedComment.id) {
+            return { ...c, x: Math.max(0, newX), y: Math.max(0, newY) }
+          }
+          return c
+        })
+      })
     }
-  }, [isDragging, handleDragMove, handleDragEnd])
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      setDraggedComment(null)
+      setDragOffset({ x: 0, y: 0 })
+    }
+
+    document.addEventListener('mousemove', handleMouseMove, { passive: false })
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging])
 
   const handleAddComment = () => {
     if (!commentText.trim() || !tempPinPosition) return
@@ -606,17 +609,103 @@ export default function ProjectViewer({ project, onBack }) {
         }
       }
 
-      // For HTML projects, screenshots are not available due to browser security restrictions
-      // We'll just show the comment list with detailed location information
+      // For HTML projects, try to capture the iframe content
+      if (!screenshotAdded && !isImageProject && iframeRef.current) {
+        try {
+          const iframe = iframeRef.current
+          let iframeDocument = null
+
+          // Try to access iframe document (works for srcdoc and same-origin iframes)
+          try {
+            iframeDocument = iframe.contentDocument || iframe.contentWindow?.document
+          } catch (e) {
+            console.log('Cannot access iframe document (cross-origin):', e)
+          }
+
+          if (iframeDocument && iframeDocument.body) {
+            // We can access the iframe content! Capture it with html2canvas
+            const canvas = await html2canvas(iframeDocument.body, {
+              useCORS: true,
+              allowTaint: true,
+              scale: 1,
+              logging: false,
+              windowWidth: iframeDocument.documentElement.scrollWidth,
+              windowHeight: iframeDocument.documentElement.scrollHeight
+            })
+
+            // Draw annotations on top
+            const ctx = canvas.getContext('2d')
+
+            // Calculate scale - annotations are positioned relative to iframe
+            const scaleX = canvas.width / iframe.offsetWidth
+            const scaleY = canvas.height / iframe.offsetHeight
+
+            pageComments.forEach((comment, idx) => {
+              const scaledX = comment.x * scaleX
+              const scaledY = comment.y * scaleY
+
+              if (comment.isRectangle && comment.width && comment.height) {
+                // Draw rectangle
+                ctx.strokeStyle = '#3b82f6'
+                ctx.lineWidth = 3
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.15)'
+                ctx.beginPath()
+                ctx.rect(scaledX, scaledY, comment.width * scaleX, comment.height * scaleY)
+                ctx.fill()
+                ctx.stroke()
+
+                // Draw number badge
+                ctx.fillStyle = '#3b82f6'
+                ctx.beginPath()
+                ctx.arc(scaledX - 8, scaledY - 8, 14, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.fillStyle = 'white'
+                ctx.font = 'bold 12px Arial'
+                ctx.textAlign = 'center'
+                ctx.textBaseline = 'middle'
+                ctx.fillText(String(idx + 1), scaledX - 8, scaledY - 8)
+              } else {
+                // Draw pin marker
+                ctx.fillStyle = '#3b82f6'
+                ctx.beginPath()
+                ctx.arc(scaledX, scaledY, 16, 0, Math.PI * 2)
+                ctx.fill()
+                ctx.fillStyle = 'white'
+                ctx.font = 'bold 14px Arial'
+                ctx.textAlign = 'center'
+                ctx.textBaseline = 'middle'
+                ctx.fillText(String(idx + 1), scaledX, scaledY)
+              }
+            })
+
+            // Add to PDF
+            const imgData = canvas.toDataURL('image/jpeg', 0.85)
+            const imgAspect = canvas.height / canvas.width
+            const pdfImgWidth = contentWidth
+            const pdfImgHeight = pdfImgWidth * imgAspect
+
+            // Check if image fits on current page
+            const maxImgHeight = pageHeight - yPosition - 30
+            const finalImgHeight = Math.min(pdfImgHeight, maxImgHeight)
+            const finalImgWidth = finalImgHeight / imgAspect
+
+            pdf.addImage(imgData, 'JPEG', margin, yPosition, finalImgWidth, finalImgHeight)
+            yPosition += finalImgHeight + 10
+            screenshotAdded = true
+          }
+        } catch (err) {
+          console.error('Failed to capture HTML page:', err)
+        }
+      }
 
       // Add comments list
       if (!screenshotAdded) {
-        // Add a note that screenshot couldn't be captured for HTML pages
+        // Add a note that screenshot couldn't be captured
         pdf.setFontSize(10)
         pdf.setTextColor(120, 120, 120)
-        pdf.text('Note: Screenshots are only available for image-based projects.', margin, yPosition)
+        pdf.text('Note: Screenshot not available for this page type.', margin, yPosition)
         yPosition += 5
-        pdf.text('For HTML pages, please refer to the position coordinates below.', margin, yPosition)
+        pdf.text('Please refer to the position coordinates below.', margin, yPosition)
         pdf.setTextColor(0)
         yPosition += 12
       }
@@ -1027,18 +1116,9 @@ export default function ProjectViewer({ project, onBack }) {
                 ref={overlayRef}
                 className={`comment-overlay ${commentMode ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
                 onMouseDown={handleOverlayMouseDown}
-                onMouseMove={(e) => {
-                  handleOverlayMouseMove(e)
-                  handleDragMove(e)
-                }}
-                onMouseUp={(e) => {
-                  handleOverlayMouseUp(e)
-                  handleDragEnd()
-                }}
-                onMouseLeave={(e) => {
-                  handleOverlayMouseLeave()
-                  handleDragEnd()
-                }}
+                onMouseMove={handleOverlayMouseMove}
+                onMouseUp={handleOverlayMouseUp}
+                onMouseLeave={handleOverlayMouseLeave}
               >
                 {/* Render existing comments - both pins and rectangles */}
                 {getPageComments().map((comment, index) => (
