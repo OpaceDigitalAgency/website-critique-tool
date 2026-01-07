@@ -1731,30 +1731,8 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
           </div>
         </div>
 
-        <div className="w-80 min-w-[280px] flex-shrink-0 bg-white border-l overflow-y-auto">
-          <div className="p-4">
-            <div className="mb-4 rounded-lg border border-neutral-200 bg-white p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h2 className="text-sm font-semibold text-neutral-800">Quick guide</h2>
-                  <p className="text-xs text-neutral-500">How to leave feedback and approve.</p>
-                </div>
-                <HelpCircle className="w-4 h-4 text-neutral-400" />
-              </div>
-              <ol className="mt-2 list-decimal list-inside space-y-1 text-xs text-neutral-600">
-                <li>Select a page tab to review.</li>
-                <li>Click Add Comments, then click or drag on the page.</li>
-                <li>Write your feedback and save it.</li>
-                <li>Approve the page when you are happy.</li>
-              </ol>
-              <button
-                onClick={() => setShowGuide(true)}
-                title="Open the full review guide"
-                className="mt-3 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100"
-              >
-                Open guide
-              </button>
-            </div>
+        <div className="w-80 min-w-[280px] flex-shrink-0 bg-white border-l overflow-y-auto relative">
+          <div className="p-4 pb-16">
             <div className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -1782,8 +1760,8 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
               </div>
 
               <div className="mt-3 rounded-md border border-neutral-200 bg-white px-3 py-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
                     {currentPageApproval.approved ? (
                       <Check className="w-4 h-4 text-emerald-600 mt-0.5" />
                     ) : (
@@ -1791,19 +1769,16 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
                     )}
                     <div>
                       <div className="text-sm font-medium text-neutral-800">This page</div>
-                      <div className="text-xs text-neutral-500">
+                      <div className="text-[11px] text-neutral-500">
                         {currentPageApproval.approved
                           ? `Approved ${formatTimestamp(currentPageApproval.latestApproval?.approvedAt)}`
                           : 'Needs review'}
+                        {' · '}
+                        {formatViewportList(approvalViewportsForCurrentPage)}
+                        {currentPageApproval.latestApproval?.approvedBy
+                          ? ` · ${currentPageApproval.latestApproval.approvedBy}`
+                          : ''}
                       </div>
-                      <div className="text-[11px] text-neutral-400">
-                        Covers {formatViewportList(approvalViewportsForCurrentPage)}
-                      </div>
-                      {currentPageApproval.latestApproval?.approvedBy && (
-                        <div className="text-[11px] text-neutral-400">
-                          by {currentPageApproval.latestApproval.approvedBy}
-                        </div>
-                      )}
                     </div>
                   </div>
                   {currentPageApproval.approved ? (
@@ -1998,6 +1973,16 @@ export default function ProjectViewer({ project, onBack, isClientView = false })
                 </div>
               )
             )}
+          </div>
+          <div className="absolute bottom-4 right-4">
+            <button
+              onClick={() => setShowGuide(true)}
+              title="Open the review guide"
+              className="flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-700 shadow-sm hover:bg-neutral-50"
+            >
+              <HelpCircle className="w-4 h-4 text-indigo-600" />
+              Help
+            </button>
           </div>
         </div>
       </div>
