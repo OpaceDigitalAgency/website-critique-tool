@@ -2005,7 +2005,7 @@ export default function ProjectViewer({ project, onBack }) {
             <h3 className="text-lg font-bold mb-2">Approve this page</h3>
             <p className="text-sm text-neutral-600 mb-4">
               You are approving <span className="font-semibold text-neutral-800">{approvalTarget.pageName}</span> for
-              <span className="font-semibold text-neutral-800"> {approvalTargetLabel}</span>.
+              <span className="font-semibold text-neutral-800"> {approvalTargetLabel}</span> views.
               {approvalTargetCommentCount > 0 ? ` ${approvalTargetCommentCount} comment${approvalTargetCommentCount > 1 ? 's' : ''} logged.` : ' No comments logged.'}
             </p>
 
