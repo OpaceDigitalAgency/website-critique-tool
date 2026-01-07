@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.1.1'
+const COMPONENT_VERSION = '2.1.2'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -298,9 +298,9 @@ export default function ProjectViewer({ project, onBack }) {
   })()
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
-      <div className="bg-white border-b shadow-sm">
-        <div className="max-w-full mx-auto px-4 py-3">
+    <div className="h-screen flex flex-col bg-neutral-50">
+      <div className="bg-white border-b border-neutral-200 sticky top-0 z-40">
+        <div className="max-w-full mx-auto px-6 py-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-4">
               <button
@@ -310,25 +310,28 @@ export default function ProjectViewer({ project, onBack }) {
                 <ArrowLeft className="w-5 h-5" />
                 Back
               </button>
+              <img
+                src="/annotate-by-opace-small.png"
+                alt="Annotate by Opace logo"
+                className="w-10 h-10 rounded-xl object-contain"
+              />
               <div>
-                <h1 className="text-xl font-bold">{project.name}</h1>
-                {project.clientName && (
-                  <p className="text-sm text-gray-600">Client: {project.clientName}</p>
-                )}
+                <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
+                <p className="text-xs text-neutral-500">{project.name}{project.clientName ? ` - ${project.clientName}` : ''}</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
               {saving && (
-                <span className="text-sm text-gray-500 flex items-center gap-1">
-                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-500"></div>
+                <span className="text-sm text-neutral-500 flex items-center gap-1">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-neutral-500"></div>
                   Saving...
                 </span>
               )}
 
               <button
                 onClick={copyShareUrl}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
                 title="Copy share link"
               >
                 {copied ? (
@@ -346,10 +349,10 @@ export default function ProjectViewer({ project, onBack }) {
 
               <button
                 onClick={() => setCommentMode(!commentMode)}
-                className={`flex items-center gap-2 px-4 py-2 rounded transition-colors ${
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                   commentMode
                     ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
                 }`}
               >
                 <MessageSquare className="w-4 h-4" />
@@ -358,7 +361,7 @@ export default function ProjectViewer({ project, onBack }) {
 
               <button
                 onClick={generatePDF}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
               >
                 <Download className="w-4 h-4" />
                 Export PDF
@@ -374,10 +377,10 @@ export default function ProjectViewer({ project, onBack }) {
                   <button
                     key={key}
                     onClick={() => setViewport(key)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
                       viewport === key
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -392,10 +395,10 @@ export default function ProjectViewer({ project, onBack }) {
                 <button
                   key={index}
                   onClick={() => setCurrentPage(index)}
-                  className={`px-3 py-2 rounded whitespace-nowrap transition-colors ${
+                  className={`px-3 py-2 rounded-lg whitespace-nowrap transition-colors ${
                     currentPage === index
                       ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
                   }`}
                 >
                   {page.name}
@@ -407,7 +410,7 @@ export default function ProjectViewer({ project, onBack }) {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 flex justify-center items-start overflow-auto bg-gray-200 p-4">
+        <div className="flex-1 flex justify-center items-start overflow-auto bg-neutral-100 p-4">
           <div
             className="bg-white shadow-2xl relative"
             style={{
