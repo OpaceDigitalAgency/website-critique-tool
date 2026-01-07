@@ -2,7 +2,7 @@ import { getStore } from "@netlify/blobs";
 import JSZip from "jszip";
 
 // Version for cache busting
-const API_VERSION = "2.0.6";
+const API_VERSION = "2.0.8";
 
 // Helper to check if a file should be skipped (macOS metadata, etc.)
 function shouldSkipFile(path) {

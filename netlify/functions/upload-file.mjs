@@ -1,29 +1,40 @@
 import { getStore } from "@netlify/blobs";
 
 // Version for cache busting
-const API_VERSION = "2.0.7";
+const API_VERSION = "2.0.8";
 
 // Helper to check if HTML has meaningful body content
 function hasBodyContent(html) {
-  if (!html || typeof html !== 'string') return false;
+  if (!html || typeof html !== 'string') {
+    console.log('[BODY-CHECK] No HTML content or not a string');
+    return false;
+  }
 
   // Extract body content
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  if (!bodyMatch) return false;
+  if (!bodyMatch) {
+    console.log('[BODY-CHECK] No body tag found');
+    return false;
+  }
 
   let bodyContent = bodyMatch[1];
+  const originalLength = bodyContent.length;
 
   // Remove script tags
   bodyContent = bodyContent.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-  // Remove empty divs like <div id="app"></div>
-  bodyContent = bodyContent.replace(/<div[^>]*>\s*<\/div>/gi, '');
   // Remove comments
   bodyContent = bodyContent.replace(/<!--[\s\S]*?-->/g, '');
-  // Remove whitespace
-  bodyContent = bodyContent.replace(/\s+/g, '').trim();
+  // Remove whitespace for checking
+  const trimmedContent = bodyContent.replace(/\s+/g, '').trim();
 
-  // Check if there's any meaningful content left
-  return bodyContent.length > 10;
+  // Check if there's any HTML tags or meaningful content
+  // Don't filter out pages with just <div id="app"></div> if they have other content
+  const hasHtmlTags = /<[^>]+>/.test(trimmedContent);
+  const hasContent = trimmedContent.length > 20;
+
+  console.log(`[BODY-CHECK] Original: ${originalLength} chars, Trimmed: ${trimmedContent.length} chars, Has tags: ${hasHtmlTags}, Has content: ${hasContent}`);
+
+  return hasContent;
 }
 
 export default async (req, context) => {
