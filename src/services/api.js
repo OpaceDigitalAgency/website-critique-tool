@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 const API_BASE = '/api';
 
 // Version for cache busting
-const API_VERSION = '2.1.1';
+const API_VERSION = '2.1.2';
 
 // MIME types for common file extensions
 const MIME_TYPES = {
@@ -69,6 +69,8 @@ export async function uploadImages(assignments, metadata) {
   const BATCH_SIZE = 1;
   let projectId = null;
   let finalResponse = null;
+  // Track uploaded files explicitly to avoid blob store eventual consistency issues
+  let uploadedFiles = [];
 
   const requestWithRetry = async (formData, attempts = 3) => {
     let lastResponse = null;
@@ -97,6 +99,10 @@ export async function uploadImages(assignments, metadata) {
       formData.append('projectId', projectId);
     }
     formData.append('isFinal', i + BATCH_SIZE >= assignments.length ? 'true' : 'false');
+    // Pass previously uploaded files to server so it can build accurate metadata
+    if (uploadedFiles.length > 0) {
+      formData.append('uploadedFiles', JSON.stringify(uploadedFiles));
+    }
 
     const payload = batch.map((assignment, index) => {
       const field = `file_${i + index}`;
@@ -130,6 +136,10 @@ export async function uploadImages(assignments, metadata) {
 
     const data = await response.json();
     projectId = data.projectId || data.project?.id || projectId;
+    // Capture the accumulated uploaded files from server response
+    if (data.uploadedFiles) {
+      uploadedFiles = data.uploadedFiles;
+    }
     finalResponse = data;
   }
 
@@ -475,6 +485,45 @@ export async function saveComments(projectId, comments, pageKey = null) {
 }
 
 /**
+ * Get approvals for a project
+ * @param {string} projectId - Project ID
+ * @returns {Promise<Object>} - Approvals payload
+ */
+export async function getApprovals(projectId) {
+  const params = new URLSearchParams({ v: API_VERSION });
+  const response = await fetch(`${API_BASE}/approvals/${projectId}?${params}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch approvals');
+  }
+
+  return response.json();
+}
+
+/**
+ * Save an approval action for a project
+ * @param {string} projectId - Project ID
+ * @param {Object} payload - Approval action payload
+ * @returns {Promise<Object>} - Updated approvals payload
+ */
+export async function saveApproval(projectId, payload) {
+  const params = new URLSearchParams({ v: API_VERSION });
+  const response = await fetch(`${API_BASE}/approvals/${projectId}?${params}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to save approval');
+  }
+
+  return response.json();
+}
+
+/**
  * Generate a shareable URL for a project
  * @param {string} projectId - Project ID
  * @returns {string} - Full shareable URL
@@ -495,5 +544,7 @@ export default {
   getPageUrl,
   getComments,
   saveComments,
+  getApprovals,
+  saveApproval,
   getShareUrl,
 };

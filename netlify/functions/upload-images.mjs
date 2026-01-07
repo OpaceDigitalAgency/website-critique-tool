@@ -66,6 +66,8 @@ export default async (req) => {
     const providedProjectId = formData.get("projectId");
     const isFinal = formData.get("isFinal") === "true";
     const assignmentsRaw = formData.get("assignments");
+    // Track uploaded files explicitly from previous batches (to avoid eventual consistency issues)
+    const uploadedFilesRaw = formData.get("uploadedFiles");
 
     if (!assignmentsRaw) {
       return new Response(JSON.stringify({ error: "Image assignments required" }), {
@@ -95,6 +97,22 @@ export default async (req) => {
         status: 400,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
+    }
+
+    // Parse previously uploaded files from client (to work around blob store eventual consistency)
+    let previouslyUploadedFiles = [];
+    if (uploadedFilesRaw) {
+      try {
+        const parsed =
+          typeof uploadedFilesRaw === "string"
+            ? uploadedFilesRaw
+            : typeof uploadedFilesRaw?.text === "function"
+            ? await uploadedFilesRaw.text()
+            : "";
+        previouslyUploadedFiles = JSON.parse(parsed);
+      } catch (e) {
+        // Ignore parse errors
+      }
     }
 
     const projectsStore = getStore("projects");
@@ -133,6 +151,9 @@ export default async (req) => {
       });
     }
 
+    // Track files uploaded in THIS batch
+    const thisUploadedFiles = [];
+
     for (const assignment of assignments) {
       const pageName = (assignment.pageName || "Untitled Page").trim();
       const slug = slugify(pageName) || "page";
@@ -168,30 +189,37 @@ export default async (req) => {
       await assetsStore.set(assetKey, new Uint8Array(arrayBuffer), {
         metadata: { contentType },
       });
+
+      // Track this file
+      thisUploadedFiles.push({
+        assetKey,
+        assetPath,
+        slug,
+        viewport,
+        pageName,
+        fileName: `${viewport}.${ext}`,
+      });
     }
 
-    const { blobs } = await assetsStore.list({ prefix: projectId });
-    const assetKeys = blobs.map((blob) => blob.key);
+    // Build pages map from explicit upload tracking (NOT from blob list - avoids eventual consistency issues)
+    // Combine previously uploaded files with this batch
+    const allUploadedFiles = [...previouslyUploadedFiles, ...thisUploadedFiles];
     const pagesMap = new Map();
+    const assetKeys = [];
 
-    blobs.forEach((blob) => {
-      const assetPath = blob.key.replace(`${projectId}/`, "");
-      const match = assetPath.match(/^images\/([^/]+)\/([^/.]+)\.[a-z0-9]+$/i);
-      if (!match) return;
-      const slug = match[1];
-      const viewport = match[2].toLowerCase();
-      if (!VIEWPORTS.has(viewport)) return;
+    allUploadedFiles.forEach((uploadedFile) => {
+      const { assetKey, assetPath, slug, viewport, pageName, fileName } = uploadedFile;
+      assetKeys.push(assetKey);
 
       const pagePath = `images/${slug}`;
       if (!pagesMap.has(pagePath)) {
         pagesMap.set(pagePath, {
-          name: pageNameBySlug.get(slug) || titleCase(slug),
+          name: pageName || pageNameBySlug.get(slug) || titleCase(slug),
           path: pagePath,
           variants: {},
         });
       }
 
-      const fileName = assetPath.split("/").pop();
       pagesMap.get(pagePath).variants[viewport] = {
         path: assetPath,
         fileName: fileName,
@@ -253,6 +281,8 @@ export default async (req) => {
         project: project,
         projectId: projectId,
         shareUrl: `/review/${projectId}`,
+        // Return all uploaded files so client can pass them to subsequent batches
+        uploadedFiles: allUploadedFiles,
       }),
       {
         status: 200,

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Check, Link, Undo2, Pencil } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Check, Link, Undo2, Pencil, Clock } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import api from '../services/api'
@@ -12,6 +12,13 @@ const VIEWPORTS = {
   tablet: { width: 768, label: 'Tablet', icon: Tablet },
   desktop: { width: 1440, label: 'Desktop', icon: Monitor },
   full: { width: '100%', label: 'Full Width', icon: Monitor }
+}
+
+const APPROVAL_VIEWPORTS = ['desktop', 'tablet', 'mobile']
+const APPROVAL_LABELS = {
+  desktop: 'Desktop',
+  tablet: 'Tablet',
+  mobile: 'Mobile'
 }
 
 export default function ProjectViewer({ project, onBack }) {
@@ -39,6 +46,13 @@ export default function ProjectViewer({ project, onBack }) {
   const [isDragging, setIsDragging] = useState(false)
   const [draggedComment, setDraggedComment] = useState(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [approvals, setApprovals] = useState({})
+  const [approvalHistory, setApprovalHistory] = useState([])
+  const [approvalSaving, setApprovalSaving] = useState(false)
+  const [approvalNotice, setApprovalNotice] = useState(null)
+  const [approverName, setApproverName] = useState('')
+  const [showApprovalModal, setShowApprovalModal] = useState(false)
+  const [approvalTarget, setApprovalTarget] = useState(null)
   const overlayRef = useRef(null)
   const iframeRef = useRef(null)
   const saveTimeoutRef = useRef(null)
@@ -48,6 +62,8 @@ export default function ProjectViewer({ project, onBack }) {
   const commentsRef = useRef(comments)
   const currentPageDataRef = useRef(null)
   const dragTargetRef = useRef(null)
+  const approvalsRef = useRef(approvals)
+  const approvalNoticeTimeoutRef = useRef(null)
 
   // Reset page/viewport when switching projects
   useEffect(() => {
@@ -84,6 +100,43 @@ export default function ProjectViewer({ project, onBack }) {
       }
     }
     loadComments()
+  }, [project?.id])
+
+  useEffect(() => {
+    approvalsRef.current = approvals
+  }, [approvals])
+
+  useEffect(() => {
+    const storedName = localStorage.getItem('approverName')
+    if (storedName) {
+      setApproverName(storedName)
+    }
+  }, [])
+
+  // Load approvals from cloud API
+  useEffect(() => {
+    if (!project?.id) return
+
+    const loadApprovals = async () => {
+      try {
+        const data = await api.getApprovals(project.id)
+        if (data?.approvals) {
+          setApprovals(data.approvals || {})
+          setApprovalHistory(data.history || [])
+        }
+      } catch (err) {
+        console.error('Failed to load approvals:', err)
+        const savedApprovals = localStorage.getItem(`approvals-${project.id}`)
+        const savedHistory = localStorage.getItem(`approval-history-${project.id}`)
+        if (savedApprovals) {
+          setApprovals(JSON.parse(savedApprovals))
+        }
+        if (savedHistory) {
+          setApprovalHistory(JSON.parse(savedHistory))
+        }
+      }
+    }
+    loadApprovals()
   }, [project?.id])
 
   // Auto-save comments to cloud with debounce
@@ -127,6 +180,12 @@ export default function ProjectViewer({ project, onBack }) {
     }
   }, [comments, saveCommentsToCloud])
 
+  useEffect(() => {
+    if (!project?.id) return
+    localStorage.setItem(`approvals-${project.id}`, JSON.stringify(approvals))
+    localStorage.setItem(`approval-history-${project.id}`, JSON.stringify(approvalHistory))
+  }, [approvals, approvalHistory, project?.id])
+
   // Helper to update comments with history tracking
   const updateCommentsWithHistory = useCallback((newComments) => {
     // Add current state to history before making changes
@@ -158,6 +217,149 @@ export default function ProjectViewer({ project, onBack }) {
 
   const currentPageData = project.pages[currentPage]
   const isImageProject = project.type === 'images' || Boolean(currentPageData?.variants)
+  const currentPageKey = currentPageData?.relativePath || currentPageData?.path || 'default'
+
+  const formatTimestamp = (value) => {
+    if (!value) return ''
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return date.toLocaleString()
+  }
+
+  const normalizeApprovalViewport = (value) => (value === 'full' ? 'desktop' : value)
+
+  const getApprovalViewportsForPage = (page) => {
+    if (isImageProject) {
+      if (!page?.variants) return ['desktop']
+      return APPROVAL_VIEWPORTS.filter((key) => page.variants[key])
+    }
+    return APPROVAL_VIEWPORTS
+  }
+
+  const approvalViewportKey = normalizeApprovalViewport(viewport)
+  const approvalViewportsForCurrentPage = getApprovalViewportsForPage(currentPageData)
+  const currentApproval = viewport === 'full' ? null : approvals[currentPageKey]?.[approvalViewportKey]
+  const canApproveCurrentView = viewport !== 'full'
+    && approvalViewportsForCurrentPage.includes(approvalViewportKey)
+    && !currentApproval
+
+  const approvalProgress = useMemo(() => {
+    if (!project?.pages) return { total: 0, approved: 0 }
+    return project.pages.reduce((acc, page) => {
+      const pageKey = page?.relativePath || page?.path || 'default'
+      const viewports = getApprovalViewportsForPage(page)
+      const approvedCount = viewports.filter((key) => approvals[pageKey]?.[key]).length
+      acc.total += viewports.length
+      acc.approved += approvedCount
+      return acc
+    }, { total: 0, approved: 0 })
+  }, [approvals, project?.pages, isImageProject])
+
+  const getPageApprovalSummary = (page) => {
+    const pageKey = page?.relativePath || page?.path || 'default'
+    const viewports = getApprovalViewportsForPage(page)
+    const approvedCount = viewports.filter((key) => approvals[pageKey]?.[key]).length
+    return { approved: approvedCount, total: viewports.length }
+  }
+
+  const pageApprovalHistory = useMemo(() => {
+    if (!approvalHistory.length) return []
+    return approvalHistory
+      .filter((entry) => entry.pageKey === currentPageKey)
+      .slice(-5)
+      .reverse()
+  }, [approvalHistory, currentPageKey])
+
+  useEffect(() => {
+    return () => {
+      if (approvalNoticeTimeoutRef.current) {
+        clearTimeout(approvalNoticeTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const getViewportCommentCount = useCallback((pageKey, viewportKey) => {
+    const pageComments = comments[pageKey] || []
+    const normalized = normalizeApprovalViewport(viewportKey)
+    return pageComments.filter((comment) => normalizeApprovalViewport(comment.viewport) === normalized).length
+  }, [comments])
+
+  const requestApproval = (pageKey, viewportKey) => {
+    setApprovalTarget({
+      pageKey,
+      viewport: viewportKey,
+      pageName: currentPageData?.name || 'Page'
+    })
+    setShowApprovalModal(true)
+  }
+
+  const clearApprovalForViewport = useCallback(async (pageKey, viewportKey, reason) => {
+    if (!project?.id || !pageKey || !viewportKey) return
+    const existing = approvalsRef.current?.[pageKey]?.[viewportKey]
+    if (!existing) return
+
+    setApprovals((prev) => {
+      const next = { ...prev }
+      if (next[pageKey]) {
+        const nextPage = { ...next[pageKey] }
+        delete nextPage[viewportKey]
+        if (Object.keys(nextPage).length === 0) {
+          delete next[pageKey]
+        } else {
+          next[pageKey] = nextPage
+        }
+      }
+      return next
+    })
+
+    const noticeLabel = APPROVAL_LABELS[viewportKey] || viewportKey
+    if (approvalNoticeTimeoutRef.current) {
+      clearTimeout(approvalNoticeTimeoutRef.current)
+    }
+    setApprovalNotice(`Approval cleared for ${noticeLabel} view due to changes.`)
+    approvalNoticeTimeoutRef.current = setTimeout(() => setApprovalNotice(null), 4000)
+
+    try {
+      const result = await api.saveApproval(project.id, {
+        action: 'clear',
+        pageKey,
+        viewport: viewportKey,
+        reason: reason || 'updated',
+        actor: 'system'
+      })
+      setApprovals(result.approvals || {})
+      setApprovalHistory(result.history || [])
+    } catch (err) {
+      console.error('Failed to clear approval:', err)
+    }
+  }, [project?.id])
+
+  const handleApprovalConfirm = async () => {
+    if (!approvalTarget || !project?.id) return
+    const name = approverName.trim()
+    if (!name) return
+
+    setApprovalSaving(true)
+    try {
+      const commentCount = getViewportCommentCount(approvalTarget.pageKey, approvalTarget.viewport)
+      const result = await api.saveApproval(project.id, {
+        action: 'approve',
+        pageKey: approvalTarget.pageKey,
+        viewport: approvalTarget.viewport,
+        approverName: name,
+        commentCount
+      })
+      setApprovals(result.approvals || {})
+      setApprovalHistory(result.history || [])
+      localStorage.setItem('approverName', name)
+      setShowApprovalModal(false)
+      setApprovalTarget(null)
+    } catch (err) {
+      console.error('Failed to save approval:', err)
+    } finally {
+      setApprovalSaving(false)
+    }
+  }
 
   // Auto-resize iframe to fit content
   useEffect(() => {
@@ -316,6 +518,7 @@ export default function ProjectViewer({ project, onBack }) {
   const stopDragging = useCallback(() => {
     const target = dragTargetRef.current
     const pointerId = dragStateRef.current.pointerId
+    const dragged = dragStateRef.current.draggedComment
     if (target && pointerId !== null && target.releasePointerCapture) {
       try {
         target.releasePointerCapture(pointerId)
@@ -323,12 +526,22 @@ export default function ProjectViewer({ project, onBack }) {
         // Ignore release errors if capture isn't active.
       }
     }
+
+    if (dragged && currentPageDataRef.current) {
+      const pageKey = currentPageDataRef.current.relativePath || currentPageDataRef.current.path || 'default'
+      const pageComments = commentsRef.current[pageKey] || []
+      const latest = pageComments.find(comment => comment.id === dragged.id)
+      if (latest && (latest.x !== dragged.x || latest.y !== dragged.y || latest.width !== dragged.width || latest.height !== dragged.height)) {
+        clearApprovalForViewport(pageKey, normalizeApprovalViewport(latest.viewport), 'comment-moved')
+      }
+    }
+
     dragTargetRef.current = null
     dragStateRef.current = { isDragging: false, draggedComment: null, dragOffset: { x: 0, y: 0 }, pointerId: null }
     setIsDragging(false)
     setDraggedComment(null)
     setDragOffset({ x: 0, y: 0 })
-  }, [])
+  }, [clearApprovalForViewport])
 
   // Drag handlers for repositioning existing comments
   const handleCommentPointerDown = useCallback((e, comment) => {
@@ -491,6 +704,7 @@ export default function ProjectViewer({ project, onBack }) {
       ...comments,
       [pageKey]: [...pageComments, newComment]
     })
+    clearApprovalForViewport(pageKey, normalizeApprovalViewport(viewport), 'comment-added')
 
     setShowCommentInput(false)
     setTempPinPosition(null)
@@ -500,12 +714,16 @@ export default function ProjectViewer({ project, onBack }) {
   const handleDeleteComment = (commentId, pageKeyOverride = null) => {
     const pageKey = pageKeyOverride || currentPageData.relativePath || currentPageData.path
     const pageComments = comments[pageKey] || []
+    const commentToDelete = pageComments.find(c => c.id === commentId)
 
     updateCommentsWithHistory({
       ...comments,
       [pageKey]: pageComments.filter(c => c.id !== commentId)
     })
     setActiveComment(null)
+    if (commentToDelete?.viewport) {
+      clearApprovalForViewport(pageKey, normalizeApprovalViewport(commentToDelete.viewport), 'comment-deleted')
+    }
   }
 
   // Edit comment handler
@@ -514,6 +732,7 @@ export default function ProjectViewer({ project, onBack }) {
 
     const pageKey = pageKeyOverride || currentPageData.relativePath || currentPageData.path
     const pageComments = comments[pageKey] || []
+    const commentToEdit = pageComments.find(c => c.id === commentId)
 
     updateCommentsWithHistory({
       ...comments,
@@ -523,12 +742,16 @@ export default function ProjectViewer({ project, onBack }) {
     })
     setEditingCommentId(null)
     setEditingText('')
+    if (commentToEdit?.viewport) {
+      clearApprovalForViewport(pageKey, normalizeApprovalViewport(commentToEdit.viewport), 'comment-edited')
+    }
   }
 
   // Move comment handler (for drag/drop)
   const handleMoveComment = (commentId, newX, newY, newWidth = null, newHeight = null, pageKeyOverride = null) => {
     const pageKey = pageKeyOverride || currentPageData.relativePath || currentPageData.path
     const pageComments = comments[pageKey] || []
+    const commentToMove = pageComments.find(c => c.id === commentId)
 
     updateCommentsWithHistory({
       ...comments,
@@ -542,6 +765,9 @@ export default function ProjectViewer({ project, onBack }) {
         return c
       })
     })
+    if (commentToMove?.viewport) {
+      clearApprovalForViewport(pageKey, normalizeApprovalViewport(commentToMove.viewport), 'comment-moved')
+    }
   }
 
   const getPageComments = () => {
@@ -1080,6 +1306,15 @@ export default function ProjectViewer({ project, onBack }) {
     if (!currentPageData?.variants) return ['desktop']
     return ['desktop', 'tablet', 'mobile'].filter((key) => currentPageData.variants[key])
   })()
+  const approvalProgressPercent = approvalProgress.total > 0
+    ? Math.round((approvalProgress.approved / approvalProgress.total) * 100)
+    : 0
+  const approvalTargetLabel = approvalTarget
+    ? (APPROVAL_LABELS[approvalTarget.viewport] || approvalTarget.viewport)
+    : ''
+  const approvalTargetCommentCount = approvalTarget
+    ? getViewportCommentCount(approvalTarget.pageKey, approvalTarget.viewport)
+    : 0
 
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50">
@@ -1135,6 +1370,13 @@ export default function ProjectViewer({ project, onBack }) {
                 </span>
               )}
 
+              {approvalSaving && (
+                <span className="text-sm text-neutral-500 flex items-center gap-1">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-neutral-500"></div>
+                  Recording approval...
+                </span>
+              )}
+
               {canUndo && (
                 <button
                   onClick={handleUndo}
@@ -1174,6 +1416,28 @@ export default function ProjectViewer({ project, onBack }) {
               >
                 <MessageSquare className="w-4 h-4" />
                 {commentMode ? 'Exit Comment Mode' : 'Add Comments'}
+              </button>
+
+              <button
+                onClick={() => requestApproval(currentPageKey, approvalViewportKey)}
+                disabled={!canApproveCurrentView}
+                title={
+                  currentApproval
+                    ? `Approved ${formatTimestamp(currentApproval.approvedAt)}`
+                    : viewport === 'full'
+                      ? 'Switch to Desktop/Tablet/Mobile to approve'
+                      : 'Approve this view'
+                }
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+                  currentApproval
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : canApproveCurrentView
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      : 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
+                }`}
+              >
+                <Check className="w-4 h-4" />
+                {currentApproval ? 'Approved' : 'Approve View'}
               </button>
 
               <button
@@ -1222,19 +1486,32 @@ export default function ProjectViewer({ project, onBack }) {
             </div>
 
             <div className="flex-1 flex flex-wrap gap-2 overflow-x-auto">
-              {project.pages.map((page, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrentPage(index)}
-                  className={`px-3 py-2 rounded-lg whitespace-nowrap transition-colors text-sm ${
-                    currentPage === index
-                      ? 'bg-neutral-800 text-white'
-                      : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
-                  }`}
-                >
-                  {page.name}
-                </button>
-              ))}
+              {project.pages.map((page, index) => {
+                const { approved, total } = getPageApprovalSummary(page)
+                const isApproved = total > 0 && approved === total
+                const progressLabel = total > 0 && !isApproved ? `${approved}/${total}` : null
+                return (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentPage(index)}
+                    className={`px-3 py-2 rounded-lg whitespace-nowrap transition-colors text-sm flex items-center gap-2 ${
+                      currentPage === index
+                        ? 'bg-neutral-800 text-white'
+                        : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
+                    }`}
+                  >
+                    <span>{page.name}</span>
+                    {isApproved && (
+                      <Check className={`w-3 h-3 ${currentPage === index ? 'text-emerald-200' : 'text-emerald-600'}`} />
+                    )}
+                    {!isApproved && progressLabel && (
+                      <span className={`text-[10px] font-semibold ${currentPage === index ? 'text-neutral-200' : 'text-neutral-600'}`}>
+                        {progressLabel}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -1401,6 +1678,118 @@ export default function ProjectViewer({ project, onBack }) {
 
         <div className="w-80 min-w-[280px] flex-shrink-0 bg-white border-l overflow-y-auto">
           <div className="p-4">
+            <div className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-neutral-800">Approval status</h2>
+                  <p className="text-xs text-neutral-500">
+                    All pages: {approvalProgress.approved}/{approvalProgress.total} views approved
+                  </p>
+                </div>
+                {approvalProgress.total > 0 && (
+                  <span className={`text-[11px] font-semibold px-2 py-1 rounded-full ${
+                    approvalProgress.approved === approvalProgress.total
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {approvalProgress.approved === approvalProgress.total ? 'All approved' : 'In review'}
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-2 h-2 w-full rounded-full bg-neutral-200 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all"
+                  style={{ width: `${approvalProgressPercent}%` }}
+                />
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {approvalViewportsForCurrentPage.map((viewportKey) => {
+                  const approval = approvals[currentPageKey]?.[viewportKey]
+                  const isActive = viewportKey === approvalViewportKey && viewport !== 'full'
+                  return (
+                    <div
+                      key={viewportKey}
+                      className={`flex items-center justify-between rounded-md border px-2 py-2 ${
+                        isActive ? 'border-indigo-200 bg-white' : 'border-neutral-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {approval ? (
+                          <Check className="w-4 h-4 text-emerald-600" />
+                        ) : (
+                          <Clock className="w-4 h-4 text-amber-600" />
+                        )}
+                        <div>
+                          <div className="text-sm font-medium text-neutral-800">
+                            {APPROVAL_LABELS[viewportKey] || viewportKey}
+                          </div>
+                          <div className="text-xs text-neutral-500">
+                            {approval ? `Approved ${formatTimestamp(approval.approvedAt)}` : 'Needs review'}
+                          </div>
+                          {approval?.approvedBy && (
+                            <div className="text-[11px] text-neutral-400">by {approval.approvedBy}</div>
+                          )}
+                        </div>
+                      </div>
+                      {approval ? (
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-full">
+                          Approved
+                        </span>
+                      ) : isActive ? (
+                        <button
+                          onClick={() => requestApproval(currentPageKey, viewportKey)}
+                          className="text-xs font-semibold px-2 py-1 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+                        >
+                          Approve
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setViewport(viewportKey)}
+                          className="text-xs font-semibold px-2 py-1 bg-neutral-200 text-neutral-700 rounded-md hover:bg-neutral-300"
+                        >
+                          View
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {viewport === 'full' && (
+                <p className="mt-2 text-xs text-amber-700">
+                  Approvals are tracked per device view. Switch to Desktop/Tablet/Mobile to approve.
+                </p>
+              )}
+
+              {approvalNotice && (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-800">
+                  {approvalNotice}
+                </div>
+              )}
+
+              {pageApprovalHistory.length > 0 && (
+                <div className="mt-3 border-t border-neutral-200 pt-3">
+                  <div className="text-xs font-semibold text-neutral-600 mb-2">Recent activity</div>
+                  <div className="space-y-1">
+                    {pageApprovalHistory.map((entry) => {
+                      const actionLabel = entry.action === 'approved' ? 'Approved' : 'Cleared'
+                      const viewportLabel = APPROVAL_LABELS[entry.viewport] || entry.viewport
+                      const historyTime = entry.timestamp || entry.approvedAt || entry.clearedAt
+                      return (
+                        <div key={entry.id} className="text-[11px] text-neutral-500">
+                          {actionLabel} {viewportLabel} · {formatTimestamp(historyTime)}
+                          {entry.actor ? ` · ${entry.actor}` : ''}
+                          {entry.action === 'cleared' && entry.reason ? ` · ${entry.reason}` : ''}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Toggle between page comments and all comments */}
             <div className="flex items-center gap-2 mb-4">
               <button
@@ -1588,6 +1977,49 @@ export default function ProjectViewer({ project, onBack }) {
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300"
               >
                 Add Comment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showApprovalModal && approvalTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold mb-2">Approve this view</h3>
+            <p className="text-sm text-neutral-600 mb-4">
+              You are approving <span className="font-semibold text-neutral-800">{approvalTarget.pageName}</span> for the
+              <span className="font-semibold text-neutral-800"> {approvalTargetLabel}</span> view.
+              {approvalTargetCommentCount > 0 ? ` ${approvalTargetCommentCount} comment${approvalTargetCommentCount > 1 ? 's' : ''} logged.` : ' No comments logged.'}
+            </p>
+
+            <label className="text-xs font-semibold text-neutral-600 uppercase tracking-wide">Approved by</label>
+            <input
+              type="text"
+              value={approverName}
+              onChange={(e) => setApproverName(e.target.value)}
+              placeholder="Client name"
+              className="w-full border rounded px-3 py-2 mt-2 mb-4 text-sm"
+              autoFocus
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowApprovalModal(false)
+                  setApprovalTarget(null)
+                }}
+                className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
+                disabled={approvalSaving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleApprovalConfirm}
+                disabled={!approverName.trim() || approvalSaving}
+                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:bg-gray-300"
+              >
+                {approvalSaving ? 'Saving...' : 'Approve'}
               </button>
             </div>
           </div>
