@@ -8,7 +8,7 @@ import {
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '3.3.0'
+const COMPONENT_VERSION = '3.3.1'
 
 const IMAGE_VIEWPORTS = [
   { key: 'desktop', label: 'Desktop' },
@@ -38,7 +38,8 @@ const COMPRESSION_SCALES = [1, 0.92, 0.85, 0.78, 0.7, 0.6, 0.5]
 
 const loadImage = (file) => {
   return new Promise((resolve, reject) => {
-    const img = new Image()
+    // Use document.createElement instead of new Image() to avoid minification issues
+    const img = document.createElement('img')
     const url = URL.createObjectURL(file)
     img.onload = () => {
       URL.revokeObjectURL(url)
