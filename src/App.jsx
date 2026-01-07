@@ -13,8 +13,13 @@ function App() {
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [isClientView, setIsClientView] = useState(false)
 
   const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+  const isClientViewFromLocation = () => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('client') === '1'
+  }
 
   const getImageProjectSummary = (project) => {
     if (!project?.assetKeys || !Array.isArray(project.assetKeys)) {
@@ -78,8 +83,10 @@ function App() {
 
     if (reviewMatch) {
       const projectId = reviewMatch[1]
+      setIsClientView(isClientViewFromLocation())
       loadProjectForReview(projectId)
     } else {
+      setIsClientView(false)
       loadProjects()
     }
   }, [])
@@ -102,6 +109,7 @@ function App() {
     setLoading(true)
     setError(null)
     setCurrentView('viewer') // Show viewer immediately with loading state
+    setIsClientView(isClientViewFromLocation())
     try {
       const project = await fetchProjectWithRetry(projectId)
       if (!isProjectReadyForView(project)) {
@@ -121,6 +129,7 @@ function App() {
   }
 
   const handleProjectSelect = async (project) => {
+    setIsClientView(false)
     // If we only have summary data, fetch full project
     if (!project.pages || project.pages.length === 0) {
       setLoading(true)
@@ -149,6 +158,7 @@ function App() {
   const handleBackToDashboard = () => {
     setCurrentView('dashboard')
     setSelectedProject(null)
+    setIsClientView(false)
     window.history.pushState({}, '', '/')
     loadProjects()
   }
@@ -158,6 +168,7 @@ function App() {
     // Automatically navigate to the new project
     if (newProject && newProject.id) {
       setCurrentView('viewer')
+      setIsClientView(false)
       setLoading(true)
       try {
         const fullProject = await fetchProjectWithRetry(newProject.id)
@@ -203,10 +214,12 @@ function App() {
       const reviewMatch = path.match(/^\/review\/(.+)$/)
 
       if (reviewMatch) {
+        setIsClientView(isClientViewFromLocation())
         loadProjectForReview(reviewMatch[1])
       } else {
         setCurrentView('dashboard')
         setSelectedProject(null)
+        setIsClientView(false)
         loadProjects()
       }
     }
@@ -252,6 +265,7 @@ function App() {
         <ProjectViewer
           project={selectedProject}
           onBack={handleBackToDashboard}
+          isClientView={isClientView}
         />
       ) : (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">

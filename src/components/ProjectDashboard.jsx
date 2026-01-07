@@ -591,7 +591,7 @@ export default function ProjectDashboard({ projects, onProjectSelect, onProjectC
 
   const copyShareUrl = async (projectId, e) => {
     e?.stopPropagation()
-    const shareUrl = api.getShareUrl(projectId)
+    const shareUrl = api.getShareUrl(projectId, { client: true })
     await navigator.clipboard.writeText(shareUrl)
     setCopiedId(projectId)
     setTimeout(() => setCopiedId(null), 2000)

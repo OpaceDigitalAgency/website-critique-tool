@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Check, Link, Undo2, Pencil, Clock } from 'lucide-react'
+import { ArrowLeft, MessageSquare, Monitor, Tablet, Smartphone, Download, Check, Link, Undo2, Pencil, Clock, HelpCircle } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import api from '../services/api'
@@ -21,7 +21,7 @@ const APPROVAL_LABELS = {
   mobile: 'Mobile'
 }
 
-export default function ProjectViewer({ project, onBack }) {
+export default function ProjectViewer({ project, onBack, isClientView = false }) {
   const [currentPage, setCurrentPage] = useState(0)
   const [viewport, setViewport] = useState('full')
   const [commentMode, setCommentMode] = useState(false)
@@ -32,6 +32,7 @@ export default function ProjectViewer({ project, onBack }) {
   const [tempPinPosition, setTempPinPosition] = useState(null)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [showGuide, setShowGuide] = useState(false)
   const [showAllComments, setShowAllComments] = useState(false)
   const [isDrawing, setIsDrawing] = useState(false)
   const [drawStart, setDrawStart] = useState(null)
@@ -1301,7 +1302,7 @@ export default function ProjectViewer({ project, onBack }) {
   }
 
   const copyShareUrl = async () => {
-    const shareUrl = api.getShareUrl(project.id)
+    const shareUrl = api.getShareUrl(project.id, { client: true })
     await navigator.clipboard.writeText(shareUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
@@ -1343,30 +1344,48 @@ export default function ProjectViewer({ project, onBack }) {
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
         <div className="max-w-full mx-auto px-6 py-3">
           <div className="flex items-center justify-between">
-            <a href="/" className="flex items-center gap-3">
-              <img
-                src="/annotate-by-opace-small.png"
-                alt="Annotate by Opace logo"
-                className="w-10 h-10 rounded-xl object-contain"
-              />
-              <div>
-                <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
-                <p className="text-xs text-neutral-500">The Visual Feedback &amp; Website Critique Tool</p>
+            {isClientView ? (
+              <div className="flex items-center gap-3">
+                <img
+                  src="/annotate-by-opace-small.png"
+                  alt="Annotate by Opace logo"
+                  className="w-10 h-10 rounded-xl object-contain"
+                />
+                <div>
+                  <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
+                  <p className="text-xs text-neutral-500">The Visual Feedback &amp; Website Critique Tool</p>
+                </div>
               </div>
-            </a>
-            <div className="flex items-center gap-3">
-              <input
-                type="text"
-                placeholder="Search projects..."
-                className="pl-10 pr-4 py-2 bg-neutral-100 border border-neutral-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <button
-                onClick={onBack}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
-              >
-                + New Project
-              </button>
-            </div>
+            ) : (
+              <a href="/" className="flex items-center gap-3" title="Go to projects dashboard">
+                <img
+                  src="/annotate-by-opace-small.png"
+                  alt="Annotate by Opace logo"
+                  className="w-10 h-10 rounded-xl object-contain"
+                />
+                <div>
+                  <h1 className="text-xl font-semibold text-neutral-800">Annotate by Opace</h1>
+                  <p className="text-xs text-neutral-500">The Visual Feedback &amp; Website Critique Tool</p>
+                </div>
+              </a>
+            )}
+            {!isClientView && (
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Search projects..."
+                  title="Search projects"
+                  className="pl-10 pr-4 py-2 bg-neutral-100 border border-neutral-200 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  onClick={onBack}
+                  title="Return to the projects dashboard"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+                >
+                  + New Project
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -1374,14 +1393,17 @@ export default function ProjectViewer({ project, onBack }) {
       {/* Action Bar - Back, Share, Add Comments, Export PDF */}
       <div className="bg-white border-b border-neutral-200">
         <div className="max-w-full mx-auto px-6 py-3">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={onBack}
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Back
-            </button>
+          <div className={`flex items-center ${isClientView ? 'justify-end' : 'justify-between'}`}>
+            {!isClientView && (
+              <button
+                onClick={onBack}
+                title="Back to projects"
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                Back
+              </button>
+            )}
 
             <div className="flex items-center gap-3">
               {saving && (
@@ -1412,7 +1434,7 @@ export default function ProjectViewer({ project, onBack }) {
               <button
                 onClick={copyShareUrl}
                 className="flex items-center gap-2 px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
-                title="Copy share link"
+                title="Copy client share link"
               >
                 {copied ? (
                   <>
@@ -1429,6 +1451,7 @@ export default function ProjectViewer({ project, onBack }) {
 
               <button
                 onClick={() => setCommentMode(!commentMode)}
+                title={commentMode ? 'Exit comment mode' : 'Add feedback by clicking or dragging on the page'}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                   commentMode
                     ? 'bg-red-600 text-white hover:bg-red-700'
@@ -1459,6 +1482,7 @@ export default function ProjectViewer({ project, onBack }) {
 
               <button
                 onClick={generatePDF}
+                title="Export a PDF summary of feedback"
                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
               >
                 <Download className="w-4 h-4" />
@@ -1489,6 +1513,7 @@ export default function ProjectViewer({ project, onBack }) {
                   <button
                     key={key}
                     onClick={() => setViewport(key)}
+                    title={`Switch to ${label} view`}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm ${
                       viewport === key
                         ? 'bg-indigo-600 text-white'
@@ -1509,6 +1534,7 @@ export default function ProjectViewer({ project, onBack }) {
                   <button
                     key={index}
                     onClick={() => setCurrentPage(index)}
+                    title={`Open ${page.name}`}
                     className={`px-3 py-2 rounded-lg whitespace-nowrap transition-colors text-sm flex items-center gap-2 ${
                       currentPage === index
                         ? 'bg-neutral-800 text-white'
@@ -1707,6 +1733,28 @@ export default function ProjectViewer({ project, onBack }) {
 
         <div className="w-80 min-w-[280px] flex-shrink-0 bg-white border-l overflow-y-auto">
           <div className="p-4">
+            <div className="mb-4 rounded-lg border border-neutral-200 bg-white p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-neutral-800">Quick guide</h2>
+                  <p className="text-xs text-neutral-500">How to leave feedback and approve.</p>
+                </div>
+                <HelpCircle className="w-4 h-4 text-neutral-400" />
+              </div>
+              <ol className="mt-2 list-decimal list-inside space-y-1 text-xs text-neutral-600">
+                <li>Select a page tab to review.</li>
+                <li>Click Add Comments, then click or drag on the page.</li>
+                <li>Write your feedback and save it.</li>
+                <li>Approve the page when you are happy.</li>
+              </ol>
+              <button
+                onClick={() => setShowGuide(true)}
+                title="Open the full review guide"
+                className="mt-3 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100"
+              >
+                Open guide
+              </button>
+            </div>
             <div className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -1765,6 +1813,7 @@ export default function ProjectViewer({ project, onBack }) {
                   ) : (
                     <button
                       onClick={() => requestApproval(currentPageKey, approvalViewportsForCurrentPage)}
+                      title="Approve this page"
                       className="text-xs font-semibold px-2 py-1 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
                     >
                       Approve page
@@ -1806,6 +1855,7 @@ export default function ProjectViewer({ project, onBack }) {
             <div className="flex items-center gap-2 mb-4">
               <button
                 onClick={() => setShowAllComments(false)}
+                title="Show comments for the current page"
                 className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
                   !showAllComments
                     ? 'bg-indigo-600 text-white'
@@ -1816,6 +1866,7 @@ export default function ProjectViewer({ project, onBack }) {
               </button>
               <button
                 onClick={() => setShowAllComments(true)}
+                title="Show comments across all pages"
                 className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
                   showAllComments
                     ? 'bg-indigo-600 text-white'
@@ -1950,6 +2001,53 @@ export default function ProjectViewer({ project, onBack }) {
           </div>
         </div>
       </div>
+
+      {showGuide && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-bold">Review guide</h3>
+                <p className="text-sm text-neutral-600">A quick walkthrough for reviewers.</p>
+              </div>
+              <button
+                onClick={() => setShowGuide(false)}
+                className="text-xs font-semibold text-neutral-500 hover:text-neutral-700"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4 text-sm text-neutral-700">
+              <div>
+                <h4 className="font-semibold text-neutral-800">1. Choose a page and view</h4>
+                <p>Use the page tabs and the Desktop, Tablet, Mobile buttons to switch views.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-neutral-800">2. Add comments</h4>
+                <p>Click Add Comments, then click for a pin or drag to highlight an area.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-neutral-800">3. Review and refine</h4>
+                <p>Use the right panel to read, edit, or delete feedback as needed.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-neutral-800">4. Approve when ready</h4>
+                <p>Click Approve Page and enter your name to record approval.</p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <button
+                onClick={() => setShowGuide(false)}
+                className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCommentInput && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

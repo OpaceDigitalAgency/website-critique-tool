@@ -528,9 +528,14 @@ export async function saveApproval(projectId, payload) {
  * @param {string} projectId - Project ID
  * @returns {string} - Full shareable URL
  */
-export function getShareUrl(projectId) {
+export function getShareUrl(projectId, options = {}) {
   const baseUrl = window.location.origin;
-  return `${baseUrl}/review/${projectId}`;
+  const params = new URLSearchParams();
+  if (options.client || options.mode === 'client') {
+    params.set('client', '1');
+  }
+  const suffix = params.toString() ? `?${params}` : '';
+  return `${baseUrl}/review/${projectId}${suffix}`;
 }
 
 export default {
