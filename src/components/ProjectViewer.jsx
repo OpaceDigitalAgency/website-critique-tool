@@ -44,9 +44,10 @@ export default function ProjectViewer({ project, onBack }) {
   const saveTimeoutRef = useRef(null)
   const [iframeHeight, setIframeHeight] = useState('100vh')
   // Refs for drag state to avoid stale closures
-  const dragStateRef = useRef({ isDragging: false, draggedComment: null, dragOffset: { x: 0, y: 0 } })
+  const dragStateRef = useRef({ isDragging: false, draggedComment: null, dragOffset: { x: 0, y: 0 }, pointerId: null })
   const commentsRef = useRef(comments)
   const currentPageDataRef = useRef(null)
+  const dragTargetRef = useRef(null)
 
   // Reset page/viewport when switching projects
   useEffect(() => {
@@ -309,18 +310,28 @@ export default function ProjectViewer({ project, onBack }) {
   }, [currentPageData])
 
   useEffect(() => {
-    dragStateRef.current = { isDragging, draggedComment, dragOffset }
+    dragStateRef.current = { ...dragStateRef.current, isDragging, draggedComment, dragOffset }
   }, [isDragging, draggedComment, dragOffset])
 
   const stopDragging = useCallback(() => {
-    dragStateRef.current = { isDragging: false, draggedComment: null, dragOffset: { x: 0, y: 0 } }
+    const target = dragTargetRef.current
+    const pointerId = dragStateRef.current.pointerId
+    if (target && pointerId !== null && target.releasePointerCapture) {
+      try {
+        target.releasePointerCapture(pointerId)
+      } catch {
+        // Ignore release errors if capture isn't active.
+      }
+    }
+    dragTargetRef.current = null
+    dragStateRef.current = { isDragging: false, draggedComment: null, dragOffset: { x: 0, y: 0 }, pointerId: null }
     setIsDragging(false)
     setDraggedComment(null)
     setDragOffset({ x: 0, y: 0 })
   }, [])
 
   // Drag handlers for repositioning existing comments
-  const handleCommentDragStart = useCallback((e, comment) => {
+  const handleCommentPointerDown = useCallback((e, comment) => {
     if (e.button !== 0 || !overlayRef.current) return
     e.stopPropagation()
     e.preventDefault()
@@ -335,7 +346,38 @@ export default function ProjectViewer({ project, onBack }) {
       y: mouseY - comment.y
     }
 
-    dragStateRef.current = { isDragging: true, draggedComment: comment, dragOffset: offset }
+    const target = e.currentTarget
+    if (target && target.setPointerCapture) {
+      target.setPointerCapture(e.pointerId)
+    }
+    dragTargetRef.current = target
+    dragStateRef.current = {
+      isDragging: true,
+      draggedComment: comment,
+      dragOffset: offset,
+      pointerId: e.pointerId ?? null
+    }
+    setDragOffset(offset)
+    setDraggedComment(comment)
+    setIsDragging(true)
+  }, [])
+
+  const handleCommentMouseDown = useCallback((e, comment) => {
+    if (typeof window !== 'undefined' && window.PointerEvent) return
+    if (e.button !== 0 || !overlayRef.current) return
+    e.stopPropagation()
+    e.preventDefault()
+
+    const rect = overlayRef.current.getBoundingClientRect()
+    const mouseX = e.clientX - rect.left
+    const mouseY = e.clientY - rect.top
+
+    const offset = {
+      x: mouseX - comment.x,
+      y: mouseY - comment.y
+    }
+
+    dragStateRef.current = { isDragging: true, draggedComment: comment, dragOffset: offset, pointerId: null }
     setDragOffset(offset)
     setDraggedComment(comment)
     setIsDragging(true)
@@ -343,13 +385,10 @@ export default function ProjectViewer({ project, onBack }) {
 
   // Add document-level event listeners for dragging
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      const { isDragging: dragging, draggedComment, dragOffset } = dragStateRef.current
+    const handlePointerMove = (e) => {
+      const { isDragging: dragging, draggedComment, dragOffset, pointerId } = dragStateRef.current
       if (!dragging || !draggedComment || !overlayRef.current) return
-      if (e.buttons === 0) {
-        stopDragging()
-        return
-      }
+      if (pointerId !== null && e.pointerId !== pointerId) return
 
       const rect = overlayRef.current.getBoundingClientRect()
       const newX = e.clientX - rect.left - dragOffset.x
@@ -371,15 +410,58 @@ export default function ProjectViewer({ project, onBack }) {
       })
     }
 
+    const handlePointerUp = (e) => {
+      const { pointerId } = dragStateRef.current
+      if (pointerId !== null && e.pointerId !== pointerId) return
+      if (!dragStateRef.current.isDragging) return
+      stopDragging()
+    }
+
+    const handleMouseMove = (e) => {
+      const { isDragging: dragging, draggedComment, dragOffset } = dragStateRef.current
+      if (!dragging || !draggedComment || !overlayRef.current) return
+
+      const rect = overlayRef.current.getBoundingClientRect()
+      const newX = e.clientX - rect.left - dragOffset.x
+      const newY = e.clientY - rect.top - dragOffset.y
+
+      const pageKey = currentPageDataRef.current.relativePath || currentPageDataRef.current.path
+      const currentComments = commentsRef.current
+      const pageComments = currentComments[pageKey] || []
+
+      setComments({
+        ...currentComments,
+        [pageKey]: pageComments.map(c => {
+          if (c.id === draggedComment.id) {
+            return { ...c, x: Math.max(0, newX), y: Math.max(0, newY) }
+          }
+          return c
+        })
+      })
+    }
+
     const handleMouseUp = () => {
       if (!dragStateRef.current.isDragging) return
       stopDragging()
     }
 
+    const supportsPointer = typeof window !== 'undefined' && window.PointerEvent
+    if (supportsPointer) {
+      window.addEventListener('pointermove', handlePointerMove, { passive: false })
+      window.addEventListener('pointerup', handlePointerUp)
+      window.addEventListener('pointercancel', handlePointerUp)
+      window.addEventListener('blur', handlePointerUp)
+      return () => {
+        window.removeEventListener('pointermove', handlePointerMove)
+        window.removeEventListener('pointerup', handlePointerUp)
+        window.removeEventListener('pointercancel', handlePointerUp)
+        window.removeEventListener('blur', handlePointerUp)
+      }
+    }
+
     window.addEventListener('mousemove', handleMouseMove, { passive: false })
     window.addEventListener('mouseup', handleMouseUp)
     window.addEventListener('blur', handleMouseUp)
-
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
@@ -1158,7 +1240,8 @@ export default function ProjectViewer({ project, onBack }) {
                           setActiveComment(activeComment === comment.id ? null : comment.id)
                         }
                       }}
-                      onMouseDown={(e) => handleCommentDragStart(e, comment)}
+                      onPointerDown={(e) => handleCommentPointerDown(e, comment)}
+                      onMouseDown={(e) => handleCommentMouseDown(e, comment)}
                       title="Drag to reposition"
                     >
                       <span className="comment-rect-number">
@@ -1177,7 +1260,8 @@ export default function ProjectViewer({ project, onBack }) {
                           setActiveComment(activeComment === comment.id ? null : comment.id)
                         }
                       }}
-                      onMouseDown={(e) => handleCommentDragStart(e, comment)}
+                      onPointerDown={(e) => handleCommentPointerDown(e, comment)}
+                      onMouseDown={(e) => handleCommentMouseDown(e, comment)}
                       title="Drag to reposition"
                     >
                       {index + 1}

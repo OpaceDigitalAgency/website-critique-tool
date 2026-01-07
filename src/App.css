@@ -17,6 +17,7 @@
   z-index: 1000;
   transition: all 0.2s;
   pointer-events: all;
+  touch-action: none;
 }
 
 .comment-pin:hover {
@@ -37,6 +38,7 @@
   z-index: 999;
   transition: all 0.2s;
   pointer-events: all;
+  touch-action: none;
 }
 
 .comment-rect:hover {
@@ -131,4 +133,3 @@
   opacity: 0.8;
   border-style: dashed;
 }
-
