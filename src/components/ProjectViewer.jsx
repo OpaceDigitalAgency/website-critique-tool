@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import api from '../services/api'
 
 // Component version for cache busting
-const COMPONENT_VERSION = '2.2.0'
+const COMPONENT_VERSION = '2.3.0'
 
 const VIEWPORTS = {
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
@@ -28,6 +28,7 @@ export default function ProjectViewer({ project, onBack }) {
   const overlayRef = useRef(null)
   const iframeRef = useRef(null)
   const saveTimeoutRef = useRef(null)
+  const [iframeHeight, setIframeHeight] = useState('100vh')
 
   // Load comments from cloud API
   useEffect(() => {
@@ -549,7 +550,8 @@ export default function ProjectViewer({ project, onBack }) {
                       <iframe
                         ref={iframeRef}
                         src={iframeData.content}
-                        className="w-full h-full border-0"
+                        className="w-full border-0"
+                        style={{ minHeight: '100vh', display: 'block' }}
                         title={currentPageData.name}
                         sandbox="allow-same-origin allow-scripts"
                       />
@@ -559,7 +561,8 @@ export default function ProjectViewer({ project, onBack }) {
                       <iframe
                         ref={iframeRef}
                         srcDoc={iframeData.content}
-                        className="w-full h-full border-0"
+                        className="w-full border-0"
+                        style={{ minHeight: '100vh', display: 'block' }}
                         title={currentPageData.name}
                         sandbox="allow-same-origin allow-scripts"
                       />
